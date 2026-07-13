@@ -1,0 +1,30 @@
+{
+  "Carbonio": {
+    "BaseUrl": "https://webmail.example.local",
+    "Username": "user.name@example.local",
+    "CalendarName": "Google",
+    "CalendarUrl": "https://webmail.example.local/dav/user.name%40example.local/Google/",
+    "AllowNonGoogleCalendar": false
+  },
+  "Google": {
+    "CalendarId": "primary",
+    "IcsUrl": "https://calendar.google.com/calendar/ical/your-calendar-id/private-token/basic.ics"
+  },
+  "Sync": {
+    "Direction": "GoogleToCarbonio",
+    "PastDays": 30,
+    "FutureDays": 365,
+    "DeleteRemovedEvents": true,
+    "DryRun": false,
+    "StateDatabasePath": "state/sync-state.db",
+    "ImportedTitlePrefix": "(G) "
+  },
+  "Logging": {
+    "Directory": "logs",
+    "MinimumLevel": "Information",
+    "RetentionDays": 30
+  },
+  "Http": {
+    "TimeoutSeconds": 60
+  }
+}
