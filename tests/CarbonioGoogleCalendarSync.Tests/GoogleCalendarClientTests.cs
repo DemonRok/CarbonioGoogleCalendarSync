@@ -19,7 +19,7 @@ public sealed class GoogleCalendarClientTests
       END:VCALENDAR
       """;
 
-    var events = GoogleCalendarClient.ParseEvents(ics, 1, 30);
+    var events = GoogleCalendarClient.ParseEvents(ics, 30, 30);
 
     var googleEvent = Assert.Single(events);
     Assert.Equal(new TimeSpan(14, 0, 0), googleEvent.StartsAt!.Value.TimeOfDay);

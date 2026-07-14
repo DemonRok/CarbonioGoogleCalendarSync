@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -9,6 +10,7 @@ namespace CarbonioGoogleCalendarSync.Gui;
 
 public sealed class MainForm : Form
 {
+  private const int SwRestore = 9;
   private readonly TextBox _carbonioBaseUrl = new();
   private readonly TextBox _carbonioUsername = new();
   private readonly DataGridView _googleCalendars = new();
@@ -41,7 +43,7 @@ public sealed class MainForm : Form
     Text = "Carbonio Google Calendar Sync";
     Icon = new Icon(Path.Combine(AppContext.BaseDirectory, "CarbonioGoogleCalendarSync.ico"));
     StartPosition = FormStartPosition.CenterScreen;
-    MinimumSize = new Size(980, 720);
+    MinimumSize = new Size(980, 620);
     Font = new Font("Segoe UI", 9F);
 
     _tabs.Dock = DockStyle.Fill;
@@ -56,6 +58,31 @@ public sealed class MainForm : Form
     Load += (_, _) => LoadConfig();
     Shown += async (_, _) => await RefreshTaskStatusAsync();
     _password.Enter += (_, _) => ClearPasswordPlaceholder();
+  }
+
+  protected override void WndProc(ref Message m)
+  {
+    if (m.Msg == Program.ShowExistingWindowMessage)
+    {
+      BringWindowToFront();
+      return;
+    }
+
+    base.WndProc(ref m);
+  }
+
+  private void BringWindowToFront()
+  {
+    if (WindowState == FormWindowState.Minimized)
+    {
+      WindowState = FormWindowState.Normal;
+      ShowWindow(Handle, SwRestore);
+    }
+
+    Show();
+    Activate();
+    BringToFront();
+    SetForegroundWindow(Handle);
   }
 
   private TabPage BuildConfigurationTab()
@@ -85,7 +112,7 @@ public sealed class MainForm : Form
     AddTextRow(form, "Carbonio Base URL", _carbonioBaseUrl);
     AddTextRow(form, "Carbonio User", _carbonioUsername);
     AddPasswordRow(form, _password);
-    AddControlRow(form, "Google Calendars", BuildGoogleCalendarsPanel(), 132);
+    AddControlRow(form, "Google Calendars", BuildGoogleCalendarsPanel(), 168);
     AddNumberRow(form, "Past days", _pastDays, 0, 3650);
     AddNumberRow(form, "Future days", _futureDays, 1, 3650);
     AddCheckRow(form, "Delete removed", _deleteRemoved);
@@ -101,7 +128,7 @@ public sealed class MainForm : Form
     buttons.Controls.Add(MakeButton("Save Config", (_, _) => SaveConfig()));
     buttons.Controls.Add(MakeButton("Import Config", (_, _) => ImportConfig()));
     buttons.Controls.Add(MakeButton("Export Config", (_, _) => ExportConfig()));
-    buttons.Controls.Add(MakeButton("Connection Test", async (_, _) => await RunCommandAsync("carbonio-test")));
+    buttons.Controls.Add(MakeButton("Connection Test", async (_, _) => await RunCommandAsync("connection-test")));
     buttons.Controls.Add(MakeButton("Save CalDAV Password", async (_, _) => await SavePasswordAsync()));
     buttons.Controls.Add(MakeButton("Remove CalDAV Password", async (_, _) => await RemovePasswordAsync()));
 
@@ -190,10 +217,10 @@ public sealed class MainForm : Form
       RowCount = 4,
       Padding = new Padding(8)
     };
+    root.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
     root.RowStyles.Add(new RowStyle(SizeType.Absolute, 45));
-    root.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
-    root.RowStyles.Add(new RowStyle(SizeType.Absolute, 92));
-    root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+    root.RowStyles.Add(new RowStyle(SizeType.Absolute, 84));
+    root.RowStyles.Add(new RowStyle(SizeType.Absolute, 300));
 
     var primaryButtons = new FlowLayoutPanel
     {
@@ -372,7 +399,16 @@ public sealed class MainForm : Form
     {
       Name = "IcsUrl",
       HeaderText = "Private ICS URL",
-      FillWeight = 38
+      ToolTipText = "Private Google ICS URL. Saved URLs are protected with DPAPI and shown as ********.",
+      FillWeight = 32
+    });
+    _googleCalendars.Columns.Add(new DataGridViewTextBoxColumn
+    {
+      Name = "IcsStatus",
+      HeaderText = "ICS saved",
+      ToolTipText = "Shows whether the private ICS URL is already stored in the current Windows user protected store.",
+      ReadOnly = true,
+      FillWeight = 10
     });
     _googleCalendars.Columns.Add(new DataGridViewTextBoxColumn
     {
@@ -555,6 +591,7 @@ public sealed class MainForm : Form
     var rowIndex = _googleCalendars.Rows.Add(
       id,
       maskIcsUrl ? "********" : ToDisplayUrl(icsUrl),
+      maskIcsUrl ? "Yes" : "No",
       carbonioCalendarName,
       titlePrefix);
     _googleCalendars.Rows[rowIndex].Tag = new GoogleCalendarRowMetadata(maskIcsUrl ? icsUrl : null);
@@ -606,10 +643,17 @@ public sealed class MainForm : Form
     return calendars;
   }
 
-  private void SaveConfig()
+  private bool SaveConfig()
   {
     try
     {
+      var validationError = ValidateConfigurationInput();
+      if (validationError is not null)
+      {
+        AppendOutput($"Configuration validation error: {validationError}");
+        return false;
+      }
+
       Directory.CreateDirectory(AppDataDirectory);
       var model = File.Exists(ConfigPath)
         ? JsonSerializer.Deserialize<ConfigFileModel>(File.ReadAllText(ConfigPath), JsonOptions()) ?? new ConfigFileModel()
@@ -644,11 +688,72 @@ public sealed class MainForm : Form
       File.WriteAllText(ConfigPath, JsonSerializer.Serialize(model, JsonOptions()));
       LoadGoogleCalendars(model);
       AppendOutput("Configuration saved.");
+      return true;
     }
     catch (Exception ex)
     {
       AppendOutput($"Configuration save error: {ex.Message}");
+      return false;
     }
+  }
+
+  private string? ValidateConfigurationInput()
+  {
+    if (!Uri.TryCreate(_carbonioBaseUrl.Text.Trim(), UriKind.Absolute, out var baseUri) ||
+        baseUri.Scheme != Uri.UriSchemeHttps)
+    {
+      return "Carbonio Base URL must be an absolute HTTPS URL.";
+    }
+
+    if (string.IsNullOrWhiteSpace(_carbonioUsername.Text))
+    {
+      return "Carbonio User is required.";
+    }
+
+    var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    foreach (DataGridViewRow row in _googleCalendars.Rows)
+    {
+      if (row.IsNewRow)
+      {
+        continue;
+      }
+
+      var id = Convert.ToString(row.Cells["Id"].Value)?.Trim() ?? "";
+      var displayedIcsUrl = Convert.ToString(row.Cells["IcsUrl"].Value)?.Trim() ?? "";
+      var carbonioTarget = Convert.ToString(row.Cells["CarbonioCalendarName"].Value)?.Trim() ?? "";
+      var hasProtectedIcs = GuiCredentialStore.GoogleIcsExists(_carbonioUsername.Text.Trim(), id);
+      if (string.IsNullOrWhiteSpace(id))
+      {
+        return "Each Google calendar row must have a Local sync ID.";
+      }
+
+      if (!ids.Add(id))
+      {
+        return $"Duplicate Local sync ID: {id}.";
+      }
+
+      if (string.IsNullOrWhiteSpace(carbonioTarget))
+      {
+        return $"Carbonio target is required for Google calendar {id}.";
+      }
+
+      if (!string.IsNullOrWhiteSpace(displayedIcsUrl) &&
+          !string.Equals(displayedIcsUrl, "********", StringComparison.Ordinal) &&
+          (!Uri.TryCreate(displayedIcsUrl, UriKind.Absolute, out var icsUri) ||
+          icsUri.Scheme != Uri.UriSchemeHttps))
+      {
+        return $"Private ICS URL must be an absolute HTTPS URL for Google calendar {id}.";
+      }
+
+      if ((string.IsNullOrWhiteSpace(displayedIcsUrl) ||
+          string.Equals(displayedIcsUrl, "********", StringComparison.Ordinal)) &&
+          !hasProtectedIcs)
+      {
+        return $"Private ICS URL is required for Google calendar {id}.";
+      }
+    }
+
+    return ids.Count == 0 ? "At least one Google calendar must be configured." : null;
   }
 
   private void ImportConfig()
@@ -795,7 +900,11 @@ public sealed class MainForm : Form
 
   private async Task RunCommandAsync(string arguments)
   {
-    SaveConfig();
+    if (!SaveConfig())
+    {
+      return;
+    }
+
     await RunProcessAsync(GetEnginePath(), arguments, Directory.GetCurrentDirectory());
   }
 
@@ -920,6 +1029,7 @@ public sealed class MainForm : Form
 
       store.SaveGoogleIcsUrl(username, id, NormalizeUrl(displayedIcsUrl));
       row.Cells["IcsUrl"].Value = "********";
+      row.Cells["IcsStatus"].Value = "Yes";
       row.Tag = new GoogleCalendarRowMetadata(NormalizeUrl(displayedIcsUrl));
     }
   }
@@ -1364,6 +1474,12 @@ public sealed class MainForm : Form
     textBox.Dock = DockStyle.Fill;
     AddRow(form, label, textBox);
   }
+
+  [DllImport("user32.dll")]
+  private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+  [DllImport("user32.dll")]
+  private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
   private static void AddPasswordRow(TableLayoutPanel form, TextBox password)
   {

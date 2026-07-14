@@ -111,6 +111,26 @@ public sealed class CalendarSyncService(
     return conflicts > 0 ? ExitCodes.CompletedWithConflicts : ExitCodes.Success;
   }
 
+  public async Task<int> ValidateConnectionsAsync(CancellationToken cancellationToken)
+  {
+    var password = await credentialStore.GetCarbonioPasswordAsync(configuration.Carbonio.Username, cancellationToken)
+      ?? passwordReader.ReadPassword("Password Carbonio: ");
+    var carbonioResult = await ValidateCarbonioTargetsAsync(password, cancellationToken);
+    if (carbonioResult != ExitCodes.Success)
+    {
+      return carbonioResult;
+    }
+
+    var events = await googleClient.GetEventsAsync(cancellationToken);
+    foreach (var group in events.GroupBy(item => item.Source.Id).OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase))
+    {
+      Console.WriteLine($"Google calendar {group.Key}: OK, {group.Count()} events readable in the configured window.");
+    }
+
+    Console.WriteLine("Connection test completed successfully.");
+    return ExitCodes.Success;
+  }
+
   private SyncPlan BuildPlan(
     IReadOnlyList<SourcedGoogleCalendarEvent> events,
     IReadOnlyDictionary<string, SyncStateEntry> stateByGoogleId,
@@ -186,6 +206,8 @@ public sealed class CalendarSyncService(
         Console.WriteLine($"Carbonio calendar not found or not accessible: {target.Name} ({target.Uri})");
         return ExitCodes.CalendarNotFound;
       }
+
+      Console.WriteLine($"Carbonio target {target.Name}: OK");
     }
 
     return ExitCodes.Success;

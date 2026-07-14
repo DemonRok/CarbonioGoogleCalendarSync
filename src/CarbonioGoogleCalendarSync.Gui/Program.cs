@@ -1,13 +1,26 @@
+using System.Runtime.InteropServices;
+
 namespace CarbonioGoogleCalendarSync.Gui;
 
 internal static class Program
 {
+    private const string MutexName = @"Local\CarbonioGoogleCalendarSync.Gui";
+    internal static readonly int ShowExistingWindowMessage = RegisterWindowMessage("CarbonioGoogleCalendarSync.ShowExistingWindow");
+    private static readonly IntPtr HwndBroadcast = new(0xffff);
+
     /// <summary>
     ///  The main entry point for the application.
     /// </summary>
     [STAThread]
     static void Main()
     {
+        using var mutex = new Mutex(initiallyOwned: true, MutexName, out var createdNew);
+        if (!createdNew)
+        {
+            PostMessage(HwndBroadcast, ShowExistingWindowMessage, IntPtr.Zero, IntPtr.Zero);
+            return;
+        }
+
         try
         {
             Application.ThreadException += (_, e) => LogAndShow(e.Exception);
@@ -33,6 +46,12 @@ internal static class Program
             LogAndShow(ex);
         }
     }
+
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern int RegisterWindowMessage(string lpString);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool PostMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
 
     private static void LogAndShow(Exception ex)
     {

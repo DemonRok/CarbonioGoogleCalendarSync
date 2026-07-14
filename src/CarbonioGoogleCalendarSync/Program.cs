@@ -113,6 +113,8 @@ public static class Program
         => await InitConfigAsync(services, cancellationToken),
       "config" when args.Skip(1).FirstOrDefault()?.Equals("set-google-ics", StringComparison.OrdinalIgnoreCase) == true
         => await SetGoogleIcsAsync(services, cancellationToken),
+      "connection-test" => await services.GetRequiredService<CalendarSyncService>()
+        .ValidateConnectionsAsync(cancellationToken),
       "credentials" => await RunCredentialsAsync(services, args, cancellationToken),
       "sync" => await services.GetRequiredService<CalendarSyncService>()
         .RunAsync(args.Contains("--dry-run", StringComparer.OrdinalIgnoreCase), cancellationToken),
@@ -225,6 +227,7 @@ public static class Program
   {
     Console.WriteLine("Uso:");
     Console.WriteLine("  CarbonioGoogleCalendarSync.exe carbonio-test [--keep-test-event]");
+    Console.WriteLine("  CarbonioGoogleCalendarSync.exe connection-test");
     Console.WriteLine("  CarbonioGoogleCalendarSync.exe credentials set-carbonio");
     Console.WriteLine("  CarbonioGoogleCalendarSync.exe credentials remove-carbonio");
     Console.WriteLine("  CarbonioGoogleCalendarSync.exe config init");
