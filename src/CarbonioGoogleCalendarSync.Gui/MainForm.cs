@@ -610,7 +610,23 @@ public sealed class MainForm : Form
       return;
     }
 
-    _googleCalendars.Rows.RemoveAt(_googleCalendars.SelectedRows[0].Index);
+    var row = _googleCalendars.SelectedRows[0];
+    var calendarId = Convert.ToString(row.Cells["Id"].Value)?.Trim() ?? "";
+    if (!string.IsNullOrWhiteSpace(calendarId))
+    {
+      if (string.IsNullOrWhiteSpace(_carbonioUsername.Text))
+      {
+        AppendOutput($"Google calendar row removed, but protected ICS URL could not be removed because Carbonio User is empty: {calendarId}.");
+      }
+      else
+      {
+        var store = new GuiCredentialStore();
+        store.RemoveGoogleIcsUrl(_carbonioUsername.Text.Trim(), calendarId);
+        AppendOutput($"Protected Google ICS URL removed for calendar {calendarId}.");
+      }
+    }
+
+    _googleCalendars.Rows.RemoveAt(row.Index);
   }
 
   private List<GoogleCalendarFileModel> ReadGoogleCalendars()
@@ -1874,6 +1890,15 @@ public sealed class MainForm : Form
     public static bool GoogleIcsExists(string username, string calendarId)
     {
       return File.Exists(GetGoogleIcsPath(username, calendarId));
+    }
+
+    public void RemoveGoogleIcsUrl(string username, string calendarId)
+    {
+      var path = GetGoogleIcsPath(username, calendarId);
+      if (File.Exists(path))
+      {
+        File.Delete(path);
+      }
     }
 
     private static string GetCredentialPath(string username)
