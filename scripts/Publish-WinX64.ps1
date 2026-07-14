@@ -1,6 +1,7 @@
 param(
   [string]$Configuration = "Release",
-  [string]$OutputDirectory = ".\publish\win-x64"
+  [string]$OutputDirectory = ".\publish\win-x64",
+  [string]$Version = ""
 )
 
 $repoRoot = Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")
@@ -13,6 +14,16 @@ else {
   Join-Path $repoRoot $OutputDirectory
 }
 
+$versionProperties = @()
+if (-not [string]::IsNullOrWhiteSpace($Version)) {
+  $versionProperties = @(
+    "-p:Version=$Version",
+    "-p:AssemblyVersion=$Version.0",
+    "-p:FileVersion=$Version.0",
+    "-p:InformationalVersion=$Version"
+  )
+}
+
 dotnet publish $projectPath `
   -c $Configuration `
   -r win-x64 `
@@ -21,6 +32,7 @@ dotnet publish $projectPath `
   -p:IncludeNativeLibrariesForSelfExtract=true `
   -p:DebugType=None `
   -p:DebugSymbols=false `
+  @versionProperties `
   -o $resolvedOutputDirectory
 
 if ($LASTEXITCODE -ne 0) {
@@ -35,6 +47,7 @@ dotnet publish $guiProjectPath `
   -p:IncludeNativeLibrariesForSelfExtract=true `
   -p:DebugType=None `
   -p:DebugSymbols=false `
+  @versionProperties `
   -o $resolvedOutputDirectory
 
 if ($LASTEXITCODE -ne 0) {

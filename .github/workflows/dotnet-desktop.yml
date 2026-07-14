@@ -27,18 +27,27 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
+      - name: Resolve version
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF -like 'refs/tags/v*') {
+            "APP_VERSION=$($env:GITHUB_REF_NAME.TrimStart('v'))" >> $env:GITHUB_ENV
+          } else {
+            "APP_VERSION=1.0.0" >> $env:GITHUB_ENV
+          }
+
       - name: Restore
         run: dotnet restore CarbonioGoogleCalendarSync.sln
 
       - name: Build
-        run: dotnet build CarbonioGoogleCalendarSync.sln --configuration Release --no-restore
+        run: dotnet build CarbonioGoogleCalendarSync.sln --configuration Release --no-restore -p:Version=${{ env.APP_VERSION }} -p:AssemblyVersion=${{ env.APP_VERSION }}.0 -p:FileVersion=${{ env.APP_VERSION }}.0 -p:InformationalVersion=${{ env.APP_VERSION }}
 
       - name: Test
         run: dotnet test CarbonioGoogleCalendarSync.sln --configuration Release --no-build --verbosity normal
 
       - name: Publish win-x64 package
         if: github.event_name == 'push'
-        run: .\scripts\Publish-WinX64.ps1
+        run: .\scripts\Publish-WinX64.ps1 -Version $env:APP_VERSION
 
       - name: Upload win-x64 package
         if: github.event_name == 'push'
