@@ -128,7 +128,7 @@ public sealed class MainForm : Form
     buttons.Controls.Add(MakeButton("Save Config", (_, _) => SaveConfig()));
     buttons.Controls.Add(MakeButton("Import Config", (_, _) => ImportConfig()));
     buttons.Controls.Add(MakeButton("Export Config", (_, _) => ExportConfig()));
-    buttons.Controls.Add(MakeButton("Connection Test", async (_, _) => await RunCommandAsync("connection-test")));
+    buttons.Controls.Add(MakeButton("Connection Test", async (_, _) => await RunConnectionTestAsync()));
     buttons.Controls.Add(MakeButton("Save CalDAV Password", async (_, _) => await SavePasswordAsync()));
     buttons.Controls.Add(MakeButton("Remove CalDAV Password", async (_, _) => await RemovePasswordAsync()));
 
@@ -924,6 +924,60 @@ public sealed class MainForm : Form
     await RunProcessAsync(GetEnginePath(), arguments, Directory.GetCurrentDirectory());
   }
 
+  private async Task RunConnectionTestAsync()
+  {
+    if (!SaveConfig())
+    {
+      return;
+    }
+
+    ToggleOperationButtons(false);
+    var fileName = GetEnginePath();
+    var arguments = "connection-test";
+    AppendOutput($"> {fileName} {arguments}");
+
+    try
+    {
+      var result = await CaptureProcessAsync(
+        fileName,
+        BuildEngineArguments(fileName, arguments),
+        Directory.GetCurrentDirectory());
+      var output = result.Output.Trim();
+      if (!string.IsNullOrWhiteSpace(output))
+      {
+        AppendOutput(output);
+      }
+
+      AppendOutput($"Exit code: {result.ExitCode}");
+
+      var message = string.IsNullOrWhiteSpace(output)
+        ? $"Connection test completed with exit code {result.ExitCode}."
+        : output;
+      message = $"{message}{Environment.NewLine}{Environment.NewLine}Exit code: {result.ExitCode}";
+
+      MessageBox.Show(
+        this,
+        TruncateDialogText(message),
+        result.ExitCode == 0 ? "Connection Test" : "Connection Test Failed",
+        MessageBoxButtons.OK,
+        result.ExitCode == 0 ? MessageBoxIcon.Information : MessageBoxIcon.Error);
+    }
+    catch (Exception ex)
+    {
+      AppendOutput($"Connection test error: {ex.Message}");
+      MessageBox.Show(
+        this,
+        ex.Message,
+        "Connection Test Failed",
+        MessageBoxButtons.OK,
+        MessageBoxIcon.Error);
+    }
+    finally
+    {
+      ToggleOperationButtons(true);
+    }
+  }
+
   private async Task RunPowerShellScriptAsync(string scriptName)
   {
     var scriptPath = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "scripts", scriptName));
@@ -1386,11 +1440,7 @@ public sealed class MainForm : Form
   {
     ToggleOperationButtons(false);
     AppendOutput($"> {fileName} {arguments}");
-
-    if (fileName.Equals("dotnet", StringComparison.OrdinalIgnoreCase))
-    {
-      arguments = $"run --project .\\src\\CarbonioGoogleCalendarSync -- {arguments}";
-    }
+    arguments = BuildEngineArguments(fileName, arguments);
 
     var startInfo = new ProcessStartInfo(fileName, arguments)
     {
@@ -1457,6 +1507,21 @@ public sealed class MainForm : Form
     var stderr = process.StandardError.ReadToEndAsync();
     await process.WaitForExitAsync();
     return (process.ExitCode, (await stdout) + (await stderr));
+  }
+
+  private static string BuildEngineArguments(string fileName, string arguments)
+  {
+    return fileName.Equals("dotnet", StringComparison.OrdinalIgnoreCase)
+      ? $"run --project .\\src\\CarbonioGoogleCalendarSync -- {arguments}"
+      : arguments;
+  }
+
+  private static string TruncateDialogText(string text)
+  {
+    const int maxLength = 6000;
+    return text.Length <= maxLength
+      ? text
+      : text[..maxLength] + Environment.NewLine + "... output truncated ...";
   }
 
   private void ToggleOperationButtons(bool enabled)
