@@ -13,9 +13,23 @@ public sealed class GoogleToCalDavConverter(AppConfiguration configuration)
     return CalDavUtilities.GenerateGoogleUid(googleEvent.Id);
   }
 
+  public string GetUid(GoogleCalendarConfiguration source, GoogleCalendarEvent googleEvent)
+  {
+    return source.UseLegacyUid
+      ? GetUid(googleEvent)
+      : CalDavUtilities.GenerateGoogleUid($"{source.Id}:{googleEvent.Id}");
+  }
+
   public string ConvertToICalendar(GoogleCalendarEvent googleEvent)
   {
-    var uid = GetUid(googleEvent);
+    return ConvertToICalendar(
+      new GoogleCalendarConfiguration(configuration.Google.CalendarId, configuration.Google.IcsUrl, configuration.Sync.ImportedTitlePrefix, UseLegacyUid: true),
+      googleEvent);
+  }
+
+  public string ConvertToICalendar(GoogleCalendarConfiguration source, GoogleCalendarEvent googleEvent)
+  {
+    var uid = GetUid(source, googleEvent);
     var builder = new StringBuilder();
     Append(builder, "BEGIN:VCALENDAR");
     Append(builder, "VERSION:2.0");
@@ -25,7 +39,7 @@ public sealed class GoogleToCalDavConverter(AppConfiguration configuration)
     Append(builder, "BEGIN:VEVENT");
     Append(builder, $"UID:{EscapeText(uid)}");
     Append(builder, $"DTSTAMP:{FormatUtc(GetStableTimestamp(googleEvent))}");
-    Append(builder, $"SUMMARY:{EscapeText(GetImportedSummary(googleEvent.Summary))}");
+    Append(builder, $"SUMMARY:{EscapeText(GetImportedSummary(source, googleEvent.Summary))}");
 
     if (googleEvent.StartDate is not null && googleEvent.EndDate is not null)
     {
@@ -55,7 +69,7 @@ public sealed class GoogleToCalDavConverter(AppConfiguration configuration)
     Append(builder, $"STATUS:{MapStatus(googleEvent.Status)}");
     Append(builder, "X-CARBONIO-GOOGLE-SYNC:TRUE");
     Append(builder, $"X-GOOGLE-EVENT-ID:{EscapeText(googleEvent.Id)}");
-    Append(builder, $"X-GOOGLE-CALENDAR-ID:{EscapeText(configuration.Google.CalendarId)}");
+    Append(builder, $"X-GOOGLE-CALENDAR-ID:{EscapeText(source.Id)}");
     Append(builder, $"X-GOOGLE-UPDATED:{EscapeText(googleEvent.Updated.ToString("O", CultureInfo.InvariantCulture))}");
     Append(builder, "END:VEVENT");
     Append(builder, "END:VCALENDAR");
@@ -65,6 +79,11 @@ public sealed class GoogleToCalDavConverter(AppConfiguration configuration)
   public string ComputeHash(GoogleCalendarEvent googleEvent)
   {
     return CalDavUtilities.ComputeNormalizedHash(ConvertToICalendar(googleEvent));
+  }
+
+  public string ComputeHash(GoogleCalendarConfiguration source, GoogleCalendarEvent googleEvent)
+  {
+    return CalDavUtilities.ComputeNormalizedHash(ConvertToICalendar(source, googleEvent));
   }
 
   private static string BuildDescription(GoogleCalendarEvent googleEvent)
@@ -86,7 +105,12 @@ public sealed class GoogleToCalDavConverter(AppConfiguration configuration)
 
   private string GetImportedSummary(string summary)
   {
-    var prefix = configuration.Sync.ImportedTitlePrefix;
+    return GetImportedSummary(null, summary);
+  }
+
+  private string GetImportedSummary(GoogleCalendarConfiguration? source, string summary)
+  {
+    var prefix = source?.TitlePrefix ?? configuration.Sync.ImportedTitlePrefix;
     if (string.IsNullOrEmpty(prefix) || summary.StartsWith(prefix, StringComparison.Ordinal))
     {
       return summary;

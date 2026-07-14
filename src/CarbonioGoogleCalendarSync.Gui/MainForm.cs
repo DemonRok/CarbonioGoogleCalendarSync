@@ -397,9 +397,10 @@ public sealed class MainForm : Form
       _carbonioCalendarName.Text = model.Carbonio?.CalendarName ?? "Google";
       _carbonioCalendarUrl.Text = ToDisplayCalDavUrl(model.Carbonio?.CalendarUrl ?? "");
       _allowNonGoogleCalendar.Checked = model.Carbonio?.AllowNonGoogleCalendar ?? false;
-      _googleCalendarId.Text = model.Google?.CalendarId ?? "primary";
-      SetGoogleIcsPlaceholderIfConfigured(model.Google?.IcsUrl);
-      _importedTitlePrefix.Text = model.Sync?.ImportedTitlePrefix ?? "(G) ";
+      var firstGoogleCalendar = model.Google?.Calendars.Count > 0 ? model.Google.Calendars[0] : null;
+      _googleCalendarId.Text = firstGoogleCalendar?.Id ?? model.Google?.CalendarId ?? "primary";
+      SetGoogleIcsPlaceholderIfConfigured(firstGoogleCalendar?.IcsUrl ?? model.Google?.IcsUrl);
+      _importedTitlePrefix.Text = firstGoogleCalendar?.TitlePrefix ?? model.Sync?.ImportedTitlePrefix ?? "(G) ";
       _pastDays.Value = Clamp(model.Sync?.PastDays ?? 30, _pastDays.Minimum, _pastDays.Maximum);
       _futureDays.Value = Clamp(model.Sync?.FutureDays ?? 365, _futureDays.Minimum, _futureDays.Maximum);
       _deleteRemoved.Checked = model.Sync?.DeleteRemovedEvents ?? true;
@@ -460,6 +461,26 @@ public sealed class MainForm : Form
       if (!_googleIcsPlaceholderActive)
       {
         model.Google.IcsUrl = NormalizeUrl(_googleIcsUrl.Text.Trim());
+      }
+      if (model.Google.Calendars.Count > 0)
+      {
+        var firstCalendarIcsUrl = _googleIcsPlaceholderActive
+          ? model.Google.Calendars[0].IcsUrl
+          : NormalizeUrl(_googleIcsUrl.Text.Trim());
+        model.Google.Calendars[0] = model.Google.Calendars[0] with
+        {
+          Id = _googleCalendarId.Text.Trim(),
+          IcsUrl = firstCalendarIcsUrl,
+          TitlePrefix = _importedTitlePrefix.Text
+        };
+      }
+      else if (!string.IsNullOrWhiteSpace(model.Google.IcsUrl))
+      {
+        model.Google.Calendars.Add(new GoogleCalendarFileModel(
+          _googleCalendarId.Text.Trim(),
+          model.Google.IcsUrl,
+          _importedTitlePrefix.Text,
+          true));
       }
       model.Sync.Direction = "GoogleToCarbonio";
       model.Sync.PastDays = (int)_pastDays.Value;
@@ -1203,7 +1224,10 @@ public sealed class MainForm : Form
   {
     public string? CalendarId { get; set; }
     public string? IcsUrl { get; set; }
+    public List<GoogleCalendarFileModel> Calendars { get; set; } = [];
   }
+
+  private sealed record GoogleCalendarFileModel(string Id, string IcsUrl, string? TitlePrefix, bool UseLegacyUid = false);
 
   private sealed record SyncFileModel
   {

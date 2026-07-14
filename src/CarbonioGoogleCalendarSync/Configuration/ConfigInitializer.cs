@@ -40,7 +40,17 @@ public sealed class ConfigInitializer
       Google = new
       {
         CalendarId = googleCalendarId,
-        IcsUrl = googleIcsUrl
+        IcsUrl = googleIcsUrl,
+        Calendars = new[]
+        {
+          new
+          {
+            Id = googleCalendarId,
+            IcsUrl = googleIcsUrl,
+            TitlePrefix = "(G) ",
+            UseLegacyUid = true
+          }
+        }
       },
       Sync = new
       {
@@ -94,6 +104,14 @@ public sealed class ConfigInitializer
 
     mutable.Google ??= new GoogleFileModel();
     mutable.Google.IcsUrl = icsUrl;
+    if (mutable.Google.Calendars.Count > 0)
+    {
+      mutable.Google.Calendars[0] = mutable.Google.Calendars[0] with { IcsUrl = icsUrl };
+    }
+    else
+    {
+      mutable.Google.Calendars.Add(new GoogleCalendarFileModel(mutable.Google.CalendarId ?? "primary", icsUrl, "(G) ", true));
+    }
 
     var options = new JsonSerializerOptions { WriteIndented = true };
     await File.WriteAllTextAsync(target, JsonSerializer.Serialize(mutable, options), cancellationToken);
@@ -143,7 +161,10 @@ public sealed class ConfigInitializer
   {
     public string? CalendarId { get; init; }
     public string? IcsUrl { get; set; }
+    public List<GoogleCalendarFileModel> Calendars { get; init; } = [];
   }
+
+  private sealed record GoogleCalendarFileModel(string Id, string IcsUrl, string? TitlePrefix, bool UseLegacyUid = false);
 
   private sealed record SyncFileModel
   {

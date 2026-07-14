@@ -46,6 +46,20 @@ public sealed class SyncStateStore(AppConfiguration configuration)
 
   public async Task<IReadOnlyDictionary<string, SyncStateEntry>> LoadActiveByGoogleIdAsync(CancellationToken cancellationToken)
   {
+    var result = new Dictionary<string, SyncStateEntry>(StringComparer.Ordinal);
+    foreach (var calendar in configuration.Google.GetCalendars())
+    {
+      foreach (var item in await LoadActiveByGoogleIdAsync(calendar.Id, cancellationToken))
+      {
+        result[$"{calendar.Id}\n{item.Key}"] = item.Value;
+      }
+    }
+
+    return result;
+  }
+
+  public async Task<IReadOnlyDictionary<string, SyncStateEntry>> LoadActiveByGoogleIdAsync(string calendarId, CancellationToken cancellationToken)
+  {
     await using var connection = CreateConnection();
     await connection.OpenAsync(cancellationToken);
     await using var command = connection.CreateCommand();
@@ -55,7 +69,7 @@ public sealed class SyncStateStore(AppConfiguration configuration)
       FROM sync_state
       WHERE google_calendar_id = $calendarId AND is_deleted = 0;
       """;
-    command.Parameters.AddWithValue("$calendarId", configuration.Google.CalendarId);
+    command.Parameters.AddWithValue("$calendarId", calendarId);
 
     var result = new Dictionary<string, SyncStateEntry>(StringComparer.Ordinal);
     await using var reader = await command.ExecuteReaderAsync(cancellationToken);

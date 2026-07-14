@@ -80,6 +80,26 @@ public sealed record AppConfiguration(
     {
       throw new ConfigurationException("Sync:Direction deve essere GoogleToCarbonio.");
     }
+
+    var googleCalendars = Google.GetCalendars();
+    if (googleCalendars.Count == 0)
+    {
+      throw new ConfigurationException("Google: almeno un calendario ICS deve essere configurato.");
+    }
+
+    foreach (var calendar in googleCalendars)
+    {
+      if (string.IsNullOrWhiteSpace(calendar.Id))
+      {
+        throw new ConfigurationException("Google:Calendars:Id mancante.");
+      }
+
+      if (!Uri.TryCreate(calendar.IcsUrl, UriKind.Absolute, out var icsUri) ||
+          icsUri.Scheme != Uri.UriSchemeHttps)
+      {
+        throw new ConfigurationException($"Google:Calendars:{calendar.Id}:IcsUrl deve essere un URL HTTPS assoluto.");
+      }
+    }
   }
 }
 
@@ -96,7 +116,32 @@ public sealed record GoogleConfiguration
 {
   public string CalendarId { get; init; } = "primary";
   public string IcsUrl { get; init; } = "";
+  public IReadOnlyList<GoogleCalendarConfiguration> Calendars { get; init; } = [];
+
+  public IReadOnlyList<GoogleCalendarConfiguration> GetCalendars()
+  {
+    if (Calendars.Count > 0)
+    {
+      return Calendars
+        .Where(calendar => !string.IsNullOrWhiteSpace(calendar.IcsUrl))
+        .Select(calendar => calendar with
+        {
+          Id = string.IsNullOrWhiteSpace(calendar.Id) ? CalendarId : calendar.Id
+        })
+        .ToList();
+    }
+
+    return string.IsNullOrWhiteSpace(IcsUrl)
+      ? []
+      : [new GoogleCalendarConfiguration(CalendarId, IcsUrl, null, UseLegacyUid: true)];
+  }
 }
+
+public sealed record GoogleCalendarConfiguration(
+  string Id,
+  string IcsUrl,
+  string? TitlePrefix = null,
+  bool UseLegacyUid = false);
 
 public sealed record SyncConfiguration
 {

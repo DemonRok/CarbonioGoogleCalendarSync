@@ -1,12 +1,12 @@
 # CarbonioGoogleCalendarSync
 
-Windows application with a GUI and console engine to synchronize Google Calendar one-way into a Carbonio calendar.
+Windows application with a GUI and console engine to synchronize one or more Google calendars one-way into a Carbonio calendar.
 
 ## Status
 
 The project synchronizes Google Calendar to a Carbonio calendar using:
 
-- Google private ICS/iCal URL as the source.
+- Google private ICS/iCal URL as the source, with support for multiple source calendars.
 - Carbonio CalDAV over HTTPS as the destination.
 - Local SQLite state to avoid duplicates and manage updates/deletes.
 - Windows DPAPI to store the Carbonio password for the current Windows user.
@@ -97,6 +97,37 @@ dotnet run --project .\src\CarbonioGoogleCalendarSync -- sync --dry-run
 
 The dry-run reads events in the configured window, converts them to iCalendar and prints a summary. It does not execute `PUT`, `DELETE` or any other write operation on Carbonio.
 
+### Multiple Google Calendars
+
+For a single source calendar, the GUI fields are enough. For multiple Google calendars, add entries to `Google:Calendars` in the user configuration:
+
+```json
+{
+  "Google": {
+    "CalendarId": "primary",
+    "IcsUrl": "https://calendar.google.com/calendar/ical/your-calendar-id/private-token/basic.ics",
+    "Calendars": [
+      {
+        "Id": "primary",
+        "IcsUrl": "https://calendar.google.com/calendar/ical/your-calendar-id/private-token/basic.ics",
+        "TitlePrefix": "(G) ",
+        "UseLegacyUid": true
+      },
+      {
+        "Id": "work",
+        "IcsUrl": "https://calendar.google.com/calendar/ical/another-calendar-id/private-token/basic.ics",
+        "TitlePrefix": "(W) ",
+        "UseLegacyUid": false
+      }
+    ]
+  }
+}
+```
+
+Each calendar needs a stable `Id`, its own private ICS URL and, optionally, a title prefix. `UseLegacyUid` should remain `true` only for the first calendar when migrating from a previous single-calendar setup, so already imported events keep the same CalDAV UID. Additional calendars should use `false` to avoid UID collisions when different calendars contain events with the same Google event id.
+
+The GUI edits the first configured Google calendar and preserves additional calendars when saving the configuration.
+
 ## Real Synchronization
 
 First verify the plan:
@@ -177,7 +208,8 @@ From the GUI you can:
 - lock the Carbonio calendar to `Google` when **Allow non-dedicated calendar** is not selected;
 - save/use the CalDAV URL internally with the correct `%40` escaping;
 - explicitly allow a non-dedicated Carbonio calendar, for example the main calendar;
-- configure the Google ICS URL while showing the normal `@` in the GUI;
+- configure the first Google ICS URL while showing the normal `@` in the GUI;
+- preserve additional Google calendars configured in `Google:Calendars`;
 - save/use the ICS URL internally with the correct escaping when needed;
 - hide the saved Google ICS URL by showing `********`, because it is a private URL;
 - configure the title prefix for imported events, default `(G) `;

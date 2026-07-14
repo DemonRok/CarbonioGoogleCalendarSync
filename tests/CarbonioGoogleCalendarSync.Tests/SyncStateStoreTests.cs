@@ -27,9 +27,9 @@ public sealed class SyncStateStoreTests
     await store.UpsertAsync(entry, CancellationToken.None);
     var loaded = await store.LoadActiveByGoogleIdAsync(CancellationToken.None);
 
-    Assert.True(loaded.ContainsKey("google-1"));
-    Assert.Equal("\"etag\"", loaded["google-1"].ETag);
-    Assert.Equal("HASH", loaded["google-1"].ContentHash);
+    Assert.True(loaded.ContainsKey("primary\ngoogle-1"));
+    Assert.Equal("\"etag\"", loaded["primary\ngoogle-1"].ETag);
+    Assert.Equal("HASH", loaded["primary\ngoogle-1"].ContentHash);
   }
 
   [Fact]
@@ -66,7 +66,7 @@ public sealed class SyncStateStoreTests
         Username = "user@example.local",
         CalendarUrl = "https://webmail.example.local/dav/user%40example.local/Google/"
       },
-      new GoogleConfiguration { CalendarId = "primary" },
+      new GoogleConfiguration { CalendarId = "primary", IcsUrl = "https://calendar.google.com/calendar/ical/example/basic.ics" },
       new SyncConfiguration { StateDatabasePath = path },
       new LoggingConfiguration(),
       new HttpConfiguration());

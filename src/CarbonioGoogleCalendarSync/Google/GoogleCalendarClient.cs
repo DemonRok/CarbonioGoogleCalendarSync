@@ -8,17 +8,25 @@ namespace CarbonioGoogleCalendarSync.Google;
 
 public sealed class GoogleCalendarClient(HttpClient httpClient, AppConfiguration configuration, ILogger<GoogleCalendarClient> logger)
 {
-  public async Task<IReadOnlyList<GoogleCalendarEvent>> GetEventsAsync(CancellationToken cancellationToken)
+  public async Task<IReadOnlyList<SourcedGoogleCalendarEvent>> GetEventsAsync(CancellationToken cancellationToken)
   {
-    if (!Uri.TryCreate(configuration.Google.IcsUrl, UriKind.Absolute, out var icsUri) ||
-        icsUri.Scheme != Uri.UriSchemeHttps)
+    var results = new List<SourcedGoogleCalendarEvent>();
+    foreach (var calendar in configuration.Google.GetCalendars())
     {
-      throw new ConfigurationException("Google:IcsUrl deve essere un URL HTTPS assoluto.");
+      if (!Uri.TryCreate(calendar.IcsUrl, UriKind.Absolute, out var icsUri) ||
+          icsUri.Scheme != Uri.UriSchemeHttps)
+      {
+        throw new ConfigurationException($"Google:Calendars:{calendar.Id}:IcsUrl deve essere un URL HTTPS assoluto.");
+      }
+
+      var ics = await httpClient.GetStringAsync(icsUri, cancellationToken);
+      var events = ParseEvents(ics, configuration.Sync.PastDays, configuration.Sync.FutureDays)
+        .Select(googleEvent => new SourcedGoogleCalendarEvent(calendar, googleEvent))
+        .ToList();
+      logger.LogInformation("Eventi letti da Google calendar {CalendarId}: {Count}", calendar.Id, events.Count);
+      results.AddRange(events);
     }
 
-    var ics = await httpClient.GetStringAsync(icsUri, cancellationToken);
-    var results = ParseEvents(ics, configuration.Sync.PastDays, configuration.Sync.FutureDays);
-    logger.LogInformation("Eventi letti da Google: {Count}", results.Count);
     return results;
   }
 
@@ -89,3 +97,7 @@ public sealed class GoogleCalendarClient(HttpClient httpClient, AppConfiguration
     return start <= to && end >= from;
   }
 }
+
+public sealed record SourcedGoogleCalendarEvent(
+  GoogleCalendarConfiguration Source,
+  GoogleCalendarEvent Event);

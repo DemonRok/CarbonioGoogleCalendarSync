@@ -61,6 +61,44 @@ public sealed class GoogleToCalDavConverterTests
     Assert.Contains("DTEND;VALUE=DATE:20260802", ics);
   }
 
+  [Fact]
+  public void ConvertToICalendarUsesSourceCalendarPrefixAndMetadata()
+  {
+    var converter = new GoogleToCalDavConverter(CreateConfig());
+    var googleEvent = CreateBasicEvent("same-id", "Riunione");
+    var source = new GoogleCalendarConfiguration(
+      "work",
+      "https://calendar.google.com/calendar/ical/work/private-token/basic.ics",
+      "(W) ");
+
+    var ics = converter.ConvertToICalendar(source, googleEvent);
+
+    Assert.Contains("SUMMARY:(W) Riunione", ics);
+    Assert.Contains("X-GOOGLE-CALENDAR-ID:work", ics);
+    Assert.DoesNotContain("UID:same-id@google-carbonio-sync", ics);
+  }
+
+  [Fact]
+  public void GetUidKeepsLegacyUidOnlyForLegacySource()
+  {
+    var converter = new GoogleToCalDavConverter(CreateConfig());
+    var googleEvent = CreateBasicEvent("same-id", "Riunione");
+    var legacySource = new GoogleCalendarConfiguration(
+      "primary",
+      "https://calendar.google.com/calendar/ical/primary/private-token/basic.ics",
+      "(G) ",
+      UseLegacyUid: true);
+    var additionalSource = new GoogleCalendarConfiguration(
+      "work",
+      "https://calendar.google.com/calendar/ical/work/private-token/basic.ics",
+      "(W) ");
+
+    Assert.Equal("same-id@google-carbonio-sync", converter.GetUid(legacySource, googleEvent));
+    Assert.NotEqual(
+      converter.GetUid(legacySource, googleEvent),
+      converter.GetUid(additionalSource, googleEvent));
+  }
+
   private static AppConfiguration CreateConfig()
   {
     return new AppConfiguration(
@@ -73,5 +111,23 @@ public sealed class GoogleToCalDavConverterTests
       new SyncConfiguration(),
       new LoggingConfiguration(),
       new HttpConfiguration());
+  }
+
+  private static GoogleCalendarEvent CreateBasicEvent(string id, string summary)
+  {
+    return new GoogleCalendarEvent(
+      id,
+      null,
+      summary,
+      null,
+      null,
+      new DateTimeOffset(2026, 7, 13, 9, 0, 0, TimeSpan.FromHours(2)),
+      new DateTimeOffset(2026, 7, 13, 10, 0, 0, TimeSpan.FromHours(2)),
+      null,
+      null,
+      "Europe/Rome",
+      new DateTimeOffset(2026, 7, 12, 8, 0, 0, TimeSpan.Zero),
+      "confirmed",
+      []);
   }
 }

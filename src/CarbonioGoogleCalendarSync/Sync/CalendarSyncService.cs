@@ -25,7 +25,7 @@ public sealed class CalendarSyncService(
     await stateStore.InitializeAsync(cancellationToken);
     var events = await googleClient.GetEventsAsync(cancellationToken);
     var stateByGoogleId = await stateStore.LoadActiveByGoogleIdAsync(cancellationToken);
-    var currentGoogleIds = events.Select(item => item.Id).ToHashSet(StringComparer.Ordinal);
+    var currentGoogleIds = events.Select(item => StateKey(item.Source.Id, item.Event.Id)).ToHashSet(StringComparer.Ordinal);
 
     var password = await credentialStore.GetCarbonioPasswordAsync(configuration.Carbonio.Username, cancellationToken)
       ?? (dryRun ? null : passwordReader.ReadPassword("Password Carbonio: "));
@@ -104,7 +104,7 @@ public sealed class CalendarSyncService(
   }
 
   private SyncPlan BuildPlan(
-    IReadOnlyList<GoogleCalendarEvent> events,
+    IReadOnlyList<SourcedGoogleCalendarEvent> events,
     IReadOnlyDictionary<string, SyncStateEntry> stateByGoogleId,
     IReadOnlyDictionary<string, CalDavResource> managedResources,
     bool carbonioVerified)
@@ -116,13 +116,13 @@ public sealed class CalendarSyncService(
 
     foreach (var googleEvent in events)
     {
-      var ics = converter.ConvertToICalendar(googleEvent);
-      var hash = converter.ComputeHash(googleEvent);
-      var uid = converter.GetUid(googleEvent);
+      var ics = converter.ConvertToICalendar(googleEvent.Source, googleEvent.Event);
+      var hash = converter.ComputeHash(googleEvent.Source, googleEvent.Event);
+      var uid = converter.GetUid(googleEvent.Source, googleEvent.Event);
       var url = calDavClient.BuildEventUri(uid);
       var item = new GoogleEventPlan(googleEvent, uid, url, ics, hash);
 
-      if (!stateByGoogleId.TryGetValue(googleEvent.Id, out var state))
+      if (!stateByGoogleId.TryGetValue(StateKey(googleEvent.Source.Id, googleEvent.Event.Id), out var state))
       {
         creates.Add(item);
       }
@@ -140,9 +140,9 @@ public sealed class CalendarSyncService(
       }
     }
 
-    var currentIds = events.Select(item => item.Id).ToHashSet(StringComparer.Ordinal);
+    var currentIds = events.Select(item => StateKey(item.Source.Id, item.Event.Id)).ToHashSet(StringComparer.Ordinal);
     var deletes = stateByGoogleId.Values
-      .Where(state => !currentIds.Contains(state.GoogleEventId))
+      .Where(state => !currentIds.Contains(StateKey(state.GoogleCalendarId, state.GoogleEventId)))
       .ToList();
 
     return new SyncPlan(creates, recreates, updates, deletes, unchanged);
@@ -152,17 +152,17 @@ public sealed class CalendarSyncService(
   {
     foreach (var item in plan.Creates)
     {
-      Console.WriteLine($"CREATE: {item.GoogleEvent.Summary} | GoogleId={item.GoogleEvent.Id} | Hash={item.Hash[..12]}");
+      Console.WriteLine($"CREATE: {item.GoogleEvent.Event.Summary} | Calendar={item.GoogleEvent.Source.Id} | GoogleId={item.GoogleEvent.Event.Id} | Hash={item.Hash[..12]}");
     }
 
     foreach (var item in plan.Updates)
     {
-      Console.WriteLine($"UPDATE: {item.GoogleEvent.Summary} | GoogleId={item.GoogleEvent.Id} | Hash={item.Hash[..12]}");
+      Console.WriteLine($"UPDATE: {item.GoogleEvent.Event.Summary} | Calendar={item.GoogleEvent.Source.Id} | GoogleId={item.GoogleEvent.Event.Id} | Hash={item.Hash[..12]}");
     }
 
     foreach (var item in plan.Recreates)
     {
-      Console.WriteLine($"RECREATE: {item.GoogleEvent.Summary} | GoogleId={item.GoogleEvent.Id} | Hash={item.Hash[..12]}");
+      Console.WriteLine($"RECREATE: {item.GoogleEvent.Event.Summary} | Calendar={item.GoogleEvent.Source.Id} | GoogleId={item.GoogleEvent.Event.Id} | Hash={item.Hash[..12]}");
     }
 
     foreach (var item in plan.Deletes)
@@ -227,7 +227,7 @@ public sealed class CalendarSyncService(
     foreach (var item in plan.Creates)
     {
       var result = await calDavClient.PutEventAsync(item.CalDavUrl, item.ICalendar, password, "*", cancellationToken);
-      Console.WriteLine($"PUT create {item.GoogleEvent.Id}: HTTP {(int)result.StatusCode} {result.StatusCode}");
+      Console.WriteLine($"PUT create {item.GoogleEvent.Source.Id}/{item.GoogleEvent.Event.Id}: HTTP {(int)result.StatusCode} {result.StatusCode}");
       if (result.StatusCode is HttpStatusCode.Created or HttpStatusCode.NoContent)
       {
         await stateStore.UpsertAsync(ToStateEntry(item, result.ETag), cancellationToken);
@@ -242,7 +242,7 @@ public sealed class CalendarSyncService(
     foreach (var item in plan.Recreates)
     {
       var result = await calDavClient.PutEventAsync(item.CalDavUrl, item.ICalendar, password, "*", cancellationToken);
-      Console.WriteLine($"PUT recreate {item.GoogleEvent.Id}: HTTP {(int)result.StatusCode} {result.StatusCode}");
+      Console.WriteLine($"PUT recreate {item.GoogleEvent.Source.Id}/{item.GoogleEvent.Event.Id}: HTTP {(int)result.StatusCode} {result.StatusCode}");
       if (result.StatusCode is HttpStatusCode.Created or HttpStatusCode.NoContent)
       {
         await stateStore.UpsertAsync(ToStateEntry(item, result.ETag), cancellationToken);
@@ -257,14 +257,14 @@ public sealed class CalendarSyncService(
     foreach (var item in plan.Updates)
     {
       var urlText = item.CalDavUrl.AbsoluteUri;
-      var etag = stateByGoogleId.TryGetValue(item.GoogleEvent.Id, out var entry) ? entry.ETag : null;
+      var etag = stateByGoogleId.TryGetValue(StateKey(item.GoogleEvent.Source.Id, item.GoogleEvent.Event.Id), out var entry) ? entry.ETag : null;
       if (managedResources.TryGetValue(urlText, out var resource))
       {
         etag = resource.ETag ?? etag;
       }
 
       var result = await calDavClient.PutEventAsync(item.CalDavUrl, item.ICalendar, password, etag ?? "*", cancellationToken);
-      Console.WriteLine($"PUT update {item.GoogleEvent.Id}: HTTP {(int)result.StatusCode} {result.StatusCode}");
+      Console.WriteLine($"PUT update {item.GoogleEvent.Source.Id}/{item.GoogleEvent.Event.Id}: HTTP {(int)result.StatusCode} {result.StatusCode}");
       if (result.StatusCode is HttpStatusCode.Created or HttpStatusCode.NoContent)
       {
         await stateStore.UpsertAsync(ToStateEntry(item, result.ETag ?? etag), cancellationToken);
@@ -278,7 +278,7 @@ public sealed class CalendarSyncService(
 
     if (configuration.Sync.DeleteRemovedEvents)
     {
-      foreach (var item in plan.Deletes.Where(item => !currentGoogleIds.Contains(item.GoogleEventId)))
+      foreach (var item in plan.Deletes.Where(item => !currentGoogleIds.Contains(StateKey(item.GoogleCalendarId, item.GoogleEventId))))
       {
         if (!managedResources.TryGetValue(item.CalDavUrl, out var resource) ||
             resource.CalendarData is null ||
@@ -308,21 +308,26 @@ public sealed class CalendarSyncService(
   private SyncStateEntry ToStateEntry(GoogleEventPlan item, string? etag)
   {
     return new SyncStateEntry(
-      configuration.Google.CalendarId,
-      item.GoogleEvent.Id,
-      item.GoogleEvent.RecurringEventId,
+      item.GoogleEvent.Source.Id,
+      item.GoogleEvent.Event.Id,
+      item.GoogleEvent.Event.RecurringEventId,
       item.Uid,
       item.CalDavUrl.AbsoluteUri,
       etag,
-      item.GoogleEvent.Updated,
+      item.GoogleEvent.Event.Updated,
       item.Hash,
       DateTimeOffset.UtcNow,
       false);
   }
+
+  private static string StateKey(string calendarId, string eventId)
+  {
+    return $"{calendarId}\n{eventId}";
+  }
 }
 
 internal sealed record GoogleEventPlan(
-  GoogleCalendarEvent GoogleEvent,
+  SourcedGoogleCalendarEvent GoogleEvent,
   string Uid,
   Uri CalDavUrl,
   string ICalendar,

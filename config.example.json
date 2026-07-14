@@ -8,7 +8,21 @@
   },
   "Google": {
     "CalendarId": "primary",
-    "IcsUrl": "https://calendar.google.com/calendar/ical/your-calendar-id/private-token/basic.ics"
+    "IcsUrl": "https://calendar.google.com/calendar/ical/your-calendar-id/private-token/basic.ics",
+    "Calendars": [
+      {
+        "Id": "primary",
+        "IcsUrl": "https://calendar.google.com/calendar/ical/your-calendar-id/private-token/basic.ics",
+        "TitlePrefix": "(G) ",
+        "UseLegacyUid": true
+      },
+      {
+        "Id": "work",
+        "IcsUrl": "https://calendar.google.com/calendar/ical/another-calendar-id/private-token/basic.ics",
+        "TitlePrefix": "(W) ",
+        "UseLegacyUid": false
+      }
+    ]
   },
   "Sync": {
     "Direction": "GoogleToCarbonio",
