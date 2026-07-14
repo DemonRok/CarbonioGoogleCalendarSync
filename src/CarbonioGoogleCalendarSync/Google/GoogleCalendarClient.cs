@@ -26,6 +26,12 @@ public sealed class GoogleCalendarClient(
         throw new ConfigurationException($"URL ICS Google mancante o non valido per il calendario {calendar.Id}. Salvalo dalla GUI o con config set-google-ics.");
       }
 
+      logger.LogDebug(
+        "Scaricamento ICS Google: Calendar={CalendarId}, Target={CarbonioTarget}, PastDays={PastDays}, FutureDays={FutureDays}",
+        calendar.Id,
+        calendar.CarbonioCalendarName ?? "default",
+        configuration.Sync.PastDays,
+        configuration.Sync.FutureDays);
       var ics = await httpClient.GetStringAsync(icsUri, cancellationToken);
       var events = ParseEvents(ics, configuration.Sync.PastDays, configuration.Sync.FutureDays)
         .Select(googleEvent => new SourcedGoogleCalendarEvent(calendar, googleEvent))

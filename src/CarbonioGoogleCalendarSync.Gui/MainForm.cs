@@ -17,6 +17,7 @@ public sealed class MainForm : Form
   private readonly NumericUpDown _pastDays = new();
   private readonly NumericUpDown _futureDays = new();
   private readonly CheckBox _deleteRemoved = new();
+  private readonly ComboBox _logLevel = new();
   private readonly TextBox _password = new();
   private readonly TextBox _output = new();
   private readonly Button _dryRunButton = new();
@@ -116,6 +117,7 @@ public sealed class MainForm : Form
     AddNumberRow(form, "Past days", _pastDays, 0, 3650);
     AddNumberRow(form, "Future days", _futureDays, 1, 3650);
     AddCheckRow(form, "Delete removed", _deleteRemoved);
+    AddComboRow(form, "Log level", _logLevel, ["Error", "Warning", "Information", "Debug", "Verbose"]);
 
     var buttons = new FlowLayoutPanel
     {
@@ -497,6 +499,7 @@ public sealed class MainForm : Form
       _pastDays.Value = Clamp(model.Sync?.PastDays ?? 30, _pastDays.Minimum, _pastDays.Maximum);
       _futureDays.Value = Clamp(model.Sync?.FutureDays ?? 365, _futureDays.Minimum, _futureDays.Maximum);
       _deleteRemoved.Checked = model.Sync?.DeleteRemovedEvents ?? true;
+      SetLogLevel(model.Logging?.MinimumLevel);
       SetPasswordPlaceholderIfCredentialFileExists();
       AppendOutput("Configuration loaded.");
     }
@@ -533,6 +536,7 @@ public sealed class MainForm : Form
     _pastDays.Value = 30;
     _futureDays.Value = 365;
     _deleteRemoved.Checked = true;
+    SetLogLevel("Information");
     _password.Clear();
     _passwordPlaceholderActive = false;
   }
@@ -697,7 +701,7 @@ public sealed class MainForm : Form
       model.Sync.StateDatabasePath = string.IsNullOrWhiteSpace(model.Sync.StateDatabasePath) ? "state/sync-state.db" : model.Sync.StateDatabasePath;
       model.Sync.ImportedTitlePrefix = firstCalendar?.TitlePrefix ?? "(G)";
       model.Logging.Directory = string.IsNullOrWhiteSpace(model.Logging.Directory) ? "logs" : model.Logging.Directory;
-      model.Logging.MinimumLevel = string.IsNullOrWhiteSpace(model.Logging.MinimumLevel) ? "Information" : model.Logging.MinimumLevel;
+      model.Logging.MinimumLevel = GetSelectedLogLevel();
       model.Logging.RetentionDays = model.Logging.RetentionDays <= 0 ? 30 : model.Logging.RetentionDays;
       model.Http.TimeoutSeconds = model.Http.TimeoutSeconds <= 0 ? 60 : model.Http.TimeoutSeconds;
 
@@ -770,6 +774,34 @@ public sealed class MainForm : Form
     }
 
     return ids.Count == 0 ? "At least one Google calendar must be configured." : null;
+  }
+
+  private void SetLogLevel(string? level)
+  {
+    var normalized = NormalizeLogLevel(level);
+    if (_logLevel.Items.Count > 0)
+    {
+      _logLevel.SelectedItem = normalized;
+    }
+  }
+
+  private string GetSelectedLogLevel()
+  {
+    return NormalizeLogLevel(Convert.ToString(_logLevel.SelectedItem));
+  }
+
+  private static string NormalizeLogLevel(string? level)
+  {
+    return level?.Trim().ToLowerInvariant() switch
+    {
+      "fatal" => "Error",
+      "error" => "Error",
+      "warning" => "Warning",
+      "information" => "Information",
+      "debug" => "Debug",
+      "verbose" => "Verbose",
+      _ => "Information"
+    };
   }
 
   private void ImportConfig()
@@ -1581,6 +1613,17 @@ public sealed class MainForm : Form
   private static void AddCheckRow(TableLayoutPanel form, string label, CheckBox input)
   {
     input.Dock = DockStyle.Left;
+    AddRow(form, label, input);
+  }
+
+  private static void AddComboRow(TableLayoutPanel form, string label, ComboBox input, string[] values)
+  {
+    input.DropDownStyle = ComboBoxStyle.DropDownList;
+    input.Items.Clear();
+    input.Items.AddRange(values);
+    input.SelectedItem = "Information";
+    input.Dock = DockStyle.Left;
+    input.Width = 160;
     AddRow(form, label, input);
   }
 

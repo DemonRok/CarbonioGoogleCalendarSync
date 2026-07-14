@@ -82,6 +82,11 @@ public sealed record AppConfiguration(
       throw new ConfigurationException("Http:TimeoutSeconds deve essere maggiore di zero.");
     }
 
+    if (!IsValidLogLevel(Logging.MinimumLevel))
+    {
+      throw new ConfigurationException("Logging:MinimumLevel deve essere Fatal, Error, Warning, Information, Debug o Verbose.");
+    }
+
     if (Sync.Direction != "GoogleToCarbonio")
     {
       throw new ConfigurationException("Sync:Direction deve essere GoogleToCarbonio.");
@@ -114,6 +119,16 @@ public sealed record AppConfiguration(
       }
 
     }
+  }
+
+  private static bool IsValidLogLevel(string value)
+  {
+    return value.Equals("Fatal", StringComparison.OrdinalIgnoreCase) ||
+      value.Equals("Error", StringComparison.OrdinalIgnoreCase) ||
+      value.Equals("Warning", StringComparison.OrdinalIgnoreCase) ||
+      value.Equals("Information", StringComparison.OrdinalIgnoreCase) ||
+      value.Equals("Debug", StringComparison.OrdinalIgnoreCase) ||
+      value.Equals("Verbose", StringComparison.OrdinalIgnoreCase);
   }
 }
 

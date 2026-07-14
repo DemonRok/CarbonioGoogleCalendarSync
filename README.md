@@ -307,6 +307,20 @@ publish\win-x64\logs
 
 From the GUI you can use **Clear Logs** to delete `.log` files and **Open AppData** to open the application user folder, where configuration, state and credentials remain.
 
+The GUI Configuration tab lets you choose the minimum log level:
+
+| Level | Use |
+| --- | --- |
+| Error | Only failed operations and exceptions. |
+| Warning | Errors plus unusual non-blocking conditions. |
+| Information | Recommended default: sync start, event counts, planned changes and final results. |
+| Debug | Troubleshooting details: target validation, state/resource checks and sync planning decisions. |
+| Verbose | Maximum diagnostic detail supported by the runtime and libraries. |
+
+`Fatal` is also accepted in `config.json` and environment variables, but it is intentionally not shown in the GUI because it hides almost every operational message.
+
+Debug and verbose logging must not be used as a secret export mechanism: private Google ICS URLs, CalDAV passwords and DPAPI-protected values are not written to the log.
+
 ## License
 
 This project is licensed under the MIT License. See [LICENSE](LICENSE).

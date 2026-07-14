@@ -35,11 +35,14 @@ public sealed class CalendarSyncService(
     }
 
     var events = await googleClient.GetEventsAsync(cancellationToken);
+    logger.LogDebug("Eventi Google caricati: {EventCount}", events.Count);
     var stateByGoogleId = await stateStore.LoadActiveByGoogleIdAsync(cancellationToken);
+    logger.LogDebug("Stato locale attivo caricato: {StateCount} elementi", stateByGoogleId.Count);
     var currentGoogleIds = events.Select(item => StateKey(item.Source.Id, item.Event.Id)).ToHashSet(StringComparer.Ordinal);
     var managedResources = password is null
       ? new Dictionary<string, CalDavResource>(StringComparer.Ordinal)
       : await LoadStateResourcesAsync(stateByGoogleId.Values, password, cancellationToken);
+    logger.LogDebug("Risorse Carbonio gestite verificate: {ResourceCount}", managedResources.Count);
     var plan = BuildPlan(events, stateByGoogleId, managedResources, password is not null);
 
     PrintPlan(plan);
@@ -153,18 +156,41 @@ public sealed class CalendarSyncService(
 
       if (!stateByGoogleId.TryGetValue(StateKey(googleEvent.Source.Id, googleEvent.Event.Id), out var state))
       {
+        logger.LogDebug(
+          "Piano CREATE: Calendar={CalendarId}, GoogleId={GoogleEventId}, Target={Target}, Hash={Hash}",
+          googleEvent.Source.Id,
+          googleEvent.Event.Id,
+          googleEvent.Source.CarbonioCalendarName ?? "default",
+          hash[..12]);
         creates.Add(item);
       }
       else if (carbonioVerified && !managedResources.ContainsKey(state.CalDavUrl))
       {
+        logger.LogDebug(
+          "Piano RECREATE: Calendar={CalendarId}, GoogleId={GoogleEventId}, Target={Target}, StateUrl={CalDavUrl}",
+          googleEvent.Source.Id,
+          googleEvent.Event.Id,
+          googleEvent.Source.CarbonioCalendarName ?? "default",
+          state.CalDavUrl);
         recreates.Add(item);
       }
       else if (state.ContentHash != hash)
       {
+        logger.LogDebug(
+          "Piano UPDATE: Calendar={CalendarId}, GoogleId={GoogleEventId}, OldHash={OldHash}, NewHash={NewHash}",
+          googleEvent.Source.Id,
+          googleEvent.Event.Id,
+          state.ContentHash.Length >= 12 ? state.ContentHash[..12] : state.ContentHash,
+          hash[..12]);
         updates.Add(item);
       }
       else
       {
+        logger.LogDebug(
+          "Piano invariato: Calendar={CalendarId}, GoogleId={GoogleEventId}, Hash={Hash}",
+          googleEvent.Source.Id,
+          googleEvent.Event.Id,
+          hash[..12]);
         unchanged.Add(item);
       }
     }
@@ -189,9 +215,11 @@ public sealed class CalendarSyncService(
       .GroupBy(target => target.Uri.AbsoluteUri, StringComparer.OrdinalIgnoreCase)
       .Select(group => group.First())
       .ToList();
+    logger.LogDebug("Target Carbonio da verificare: {TargetCount}", targets.Count);
 
     foreach (var target in targets)
     {
+      logger.LogDebug("Verifica target Carbonio: CalendarId={CalendarId}, Name={CalendarName}, Uri={CalendarUri}", target.CalendarId, target.Name, target.Uri);
       var propFind = await calDavClient.PropFindCalendarAsync(target.Uri, password, cancellationToken);
       if (propFind.StatusCode == HttpStatusCode.Unauthorized)
       {
@@ -260,16 +288,22 @@ public sealed class CalendarSyncService(
     var result = new Dictionary<string, CalDavResource>(StringComparer.Ordinal);
     foreach (var state in stateEntries)
     {
+      logger.LogDebug("Verifica risorsa sincronizzata: Calendar={CalendarId}, GoogleId={GoogleEventId}, Url={CalDavUrl}", state.GoogleCalendarId, state.GoogleEventId, state.CalDavUrl);
       var get = await calDavClient.GetEventAsync(new Uri(state.CalDavUrl), password, cancellationToken);
       if (get.StatusCode == HttpStatusCode.OK &&
           get.Body is not null &&
           CalDavUtilities.IsManagedEvent(get.Body))
       {
         result[state.CalDavUrl] = new CalDavResource(new Uri(state.CalDavUrl), get.ETag ?? state.ETag, get.Body);
+        logger.LogDebug("Risorsa sincronizzata trovata: Calendar={CalendarId}, GoogleId={GoogleEventId}", state.GoogleCalendarId, state.GoogleEventId);
       }
       else if (get.StatusCode != HttpStatusCode.NotFound)
       {
         logger.LogWarning("GET risorsa sincronizzata non riuscito per GoogleId={GoogleEventId}: HTTP {StatusCode}", state.GoogleEventId, (int)get.StatusCode);
+      }
+      else
+      {
+        logger.LogDebug("Risorsa sincronizzata assente su Carbonio: Calendar={CalendarId}, GoogleId={GoogleEventId}", state.GoogleCalendarId, state.GoogleEventId);
       }
     }
 
