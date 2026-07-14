@@ -189,6 +189,7 @@ From the GUI you can:
 - delete only events imported from Google;
 - clear application logs;
 - open the application AppData folder directly;
+- view application information, license, useful paths, GitHub issues and releases from the **Info** tab;
 - manage the scheduled task.
 
 If the user `config.json` does not exist, the GUI tries to automatically migrate an old `config.json` found in the program or project folder. If nothing is found, it loads editable sample defaults and creates the file when you click **Save Config**.

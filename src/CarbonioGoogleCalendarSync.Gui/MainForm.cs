@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -26,6 +27,7 @@ public sealed class MainForm : Form
   private readonly TabControl _tabs = new();
   private TabPage? _operationsTab;
   private TabPage? _configurationTab;
+  private TabPage? _infoTab;
   private readonly NumericUpDown _taskIntervalMinutes = new();
   private readonly NumericUpDown _taskTimeoutMinutes = new();
   private readonly Label _taskStatusDot = new();
@@ -51,8 +53,10 @@ public sealed class MainForm : Form
     _tabs.Dock = DockStyle.Fill;
     _operationsTab = BuildOperationsTab();
     _configurationTab = BuildConfigurationTab();
+    _infoTab = BuildInfoTab();
     _tabs.TabPages.Add(_operationsTab);
     _tabs.TabPages.Add(_configurationTab);
+    _tabs.TabPages.Add(_infoTab);
     Controls.Add(_tabs);
 
     Load += (_, _) => LoadConfig();
@@ -127,6 +131,66 @@ public sealed class MainForm : Form
 
     root.Controls.Add(form, 0, 0);
     root.Controls.Add(hint, 0, 1);
+    root.Controls.Add(buttons, 0, 2);
+    page.Controls.Add(root);
+    return page;
+  }
+
+  private TabPage BuildInfoTab()
+  {
+    var page = new TabPage("Info");
+    var root = new TableLayoutPanel
+    {
+      Dock = DockStyle.Fill,
+      ColumnCount = 1,
+      RowCount = 3,
+      Padding = new Padding(18)
+    };
+    root.RowStyles.Add(new RowStyle(SizeType.Absolute, 118));
+    root.RowStyles.Add(new RowStyle(SizeType.Absolute, 190));
+    root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+    var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "1.0.0";
+    var title = new Label
+    {
+      Dock = DockStyle.Fill,
+      Text =
+        "Carbonio Google Calendar Sync" + Environment.NewLine +
+        $"Version {version}" + Environment.NewLine +
+        "Google Calendar ICS to Carbonio CalDAV synchronization",
+      Font = new Font(Font.FontFamily, 11F, FontStyle.Bold),
+      TextAlign = ContentAlignment.MiddleLeft
+    };
+
+    var details = new TableLayoutPanel
+    {
+      Dock = DockStyle.Fill,
+      ColumnCount = 2,
+      RowCount = 5
+    };
+    details.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150));
+    details.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+    AddInfoRow(details, "License", "MIT License");
+    AddInfoRow(details, "Copyright", "Copyright (c) 2026 Mauro Bettinelli");
+    AddInfoRow(details, "Configuration", ConfigPath);
+    AddInfoRow(details, "AppData", AppDataDirectory);
+    AddInfoRow(details, "Executable", AppContext.BaseDirectory);
+
+    var buttons = new FlowLayoutPanel
+    {
+      Dock = DockStyle.Fill,
+      FlowDirection = FlowDirection.LeftToRight,
+      WrapContents = true
+    };
+    buttons.Controls.Add(MakeButton("Open AppData", (_, _) => OpenAppDataFolder()));
+    buttons.Controls.Add(MakeButton("Open Logs", (_, _) => OpenLogsFolder()));
+    buttons.Controls.Add(MakeButton("Open Repository", (_, _) => OpenUrl("https://github.com/DemonRok/CarbonioGoogleCalendarSync")));
+    buttons.Controls.Add(MakeButton("Report Issue", (_, _) => OpenUrl("https://github.com/DemonRok/CarbonioGoogleCalendarSync/issues/new")));
+    buttons.Controls.Add(MakeButton("Open Releases", (_, _) => OpenUrl("https://github.com/DemonRok/CarbonioGoogleCalendarSync/releases")));
+    buttons.Controls.Add(MakeButton("Open License", (_, _) => OpenLocalFile(Path.Combine(AppContext.BaseDirectory, "LICENSE"))));
+
+    root.Controls.Add(title, 0, 0);
+    root.Controls.Add(details, 0, 1);
     root.Controls.Add(buttons, 0, 2);
     page.Controls.Add(root);
     return page;
@@ -634,6 +698,56 @@ public sealed class MainForm : Form
     }
   }
 
+  private void OpenLogsFolder()
+  {
+    try
+    {
+      var logsDirectory = GetLogsDirectory();
+      Directory.CreateDirectory(logsDirectory);
+      Process.Start(new ProcessStartInfo
+      {
+        FileName = logsDirectory,
+        UseShellExecute = true
+      });
+      AppendOutput($"Logs folder opened: {logsDirectory}");
+    }
+    catch (Exception ex)
+    {
+      AppendOutput($"Logs open error: {ex.Message}");
+    }
+  }
+
+  private static void OpenUrl(string url)
+  {
+    Process.Start(new ProcessStartInfo
+    {
+      FileName = url,
+      UseShellExecute = true
+    });
+  }
+
+  private void OpenLocalFile(string path)
+  {
+    try
+    {
+      if (!File.Exists(path))
+      {
+        AppendOutput($"File not found: {path}");
+        return;
+      }
+
+      Process.Start(new ProcessStartInfo
+      {
+        FileName = path,
+        UseShellExecute = true
+      });
+    }
+    catch (Exception ex)
+    {
+      AppendOutput($"File open error: {ex.Message}");
+    }
+  }
+
   private async Task RunPowerShellScriptAsync(string scriptName, string scriptArguments)
   {
     var scriptPath = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "scripts", scriptName));
@@ -848,6 +962,27 @@ public sealed class MainForm : Form
     form.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
     form.Controls.Add(new Label { Text = label, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft }, 0, row);
     form.Controls.Add(control, 1, row);
+  }
+
+  private static void AddInfoRow(TableLayoutPanel form, string label, string value)
+  {
+    var row = form.Controls.Count / 2;
+    form.RowCount = row + 1;
+    form.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
+    form.Controls.Add(new Label
+    {
+      Text = label,
+      Dock = DockStyle.Fill,
+      TextAlign = ContentAlignment.MiddleLeft,
+      Font = new Font(SystemFonts.MessageBoxFont ?? DefaultFont, FontStyle.Bold)
+    }, 0, row);
+    form.Controls.Add(new Label
+    {
+      Text = value,
+      Dock = DockStyle.Fill,
+      TextAlign = ContentAlignment.MiddleLeft,
+      AutoEllipsis = true
+    }, 1, row);
   }
 
   private void SetPasswordPlaceholderIfCredentialFileExists()
