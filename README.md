@@ -254,3 +254,7 @@ publish\win-x64\logs
 ```
 
 From the GUI you can use **Clear Logs** to delete `.log` files and **Open AppData** to open the application user folder, where configuration, state and credentials remain.
+
+## License
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE).

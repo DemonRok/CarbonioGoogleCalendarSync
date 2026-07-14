@@ -75,4 +75,7 @@ Write-Host "scripts copiati in $resolvedOutputDirectory"
 Copy-Item -LiteralPath (Join-Path $repoRoot "assets\CarbonioGoogleCalendarSync.ico") -Destination (Join-Path $resolvedOutputDirectory "CarbonioGoogleCalendarSync.ico") -Force
 Write-Host "icona copiata in $resolvedOutputDirectory"
 
+Copy-Item -LiteralPath (Join-Path $repoRoot "LICENSE") -Destination (Join-Path $resolvedOutputDirectory "LICENSE") -Force
+Write-Host "licenza copiata in $resolvedOutputDirectory"
+
 Write-Host "Pubblicazione completata in $resolvedOutputDirectory"
