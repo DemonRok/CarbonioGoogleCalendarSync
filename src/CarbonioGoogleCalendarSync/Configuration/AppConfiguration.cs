@@ -28,10 +28,20 @@ public sealed record AppConfiguration(
 
   private static CarbonioConfiguration NormalizeCarbonio(CarbonioConfiguration carbonio)
   {
-    return carbonio with
-    {
-      CalendarUrl = NormalizeCalDavUrl(carbonio.CalendarUrl)
-    };
+    return carbonio;
+  }
+
+  public Uri GetCarbonioCalendarUri(GoogleCalendarConfiguration? source = null)
+  {
+    var calendarName = GetCarbonioCalendarName(source);
+    return new Uri(BuildCarbonioCalendarUrl(Carbonio.BaseUrl, Carbonio.Username, calendarName));
+  }
+
+  public string GetCarbonioCalendarName(GoogleCalendarConfiguration? source = null)
+  {
+    return string.IsNullOrWhiteSpace(source?.CarbonioCalendarName)
+      ? "Google"
+      : source.CarbonioCalendarName;
   }
 
   private static string NormalizeCalDavUrl(string value)
@@ -48,6 +58,12 @@ public sealed record AppConfiguration(
     return builder.Uri.AbsoluteUri;
   }
 
+  private static string BuildCarbonioCalendarUrl(string baseUrl, string username, string calendarName)
+  {
+    var cleanBaseUrl = baseUrl.TrimEnd('/');
+    return $"{cleanBaseUrl}/dav/{Uri.EscapeDataString(username)}/{Uri.EscapeDataString(calendarName)}/";
+  }
+
   public void Validate()
   {
     if (string.IsNullOrWhiteSpace(Carbonio.Username))
@@ -55,20 +71,10 @@ public sealed record AppConfiguration(
       throw new ConfigurationException("Carbonio:Username mancante.");
     }
 
-    if (!Uri.TryCreate(Carbonio.CalendarUrl, UriKind.Absolute, out var calendarUri) ||
-        calendarUri.Scheme != Uri.UriSchemeHttps)
+    if (!Uri.TryCreate(Carbonio.BaseUrl, UriKind.Absolute, out var baseUri) ||
+        baseUri.Scheme != Uri.UriSchemeHttps)
     {
-      throw new ConfigurationException("Carbonio:CalendarUrl deve essere un URL HTTPS assoluto.");
-    }
-
-    if (string.IsNullOrWhiteSpace(Carbonio.CalendarName))
-    {
-      throw new ConfigurationException("Carbonio:CalendarName mancante.");
-    }
-
-    if (!Carbonio.AllowNonGoogleCalendar && !Carbonio.CalendarName.Equals("Google", StringComparison.Ordinal))
-    {
-      throw new ConfigurationException("Blocco di sicurezza: il calendario Carbonio di destinazione deve chiamarsi 'Google'.");
+      throw new ConfigurationException("Carbonio:BaseUrl deve essere un URL HTTPS assoluto.");
     }
 
     if (Http.TimeoutSeconds <= 0)
@@ -94,11 +100,19 @@ public sealed record AppConfiguration(
         throw new ConfigurationException("Google:Calendars:Id mancante.");
       }
 
-      if (!Uri.TryCreate(calendar.IcsUrl, UriKind.Absolute, out var icsUri) ||
-          icsUri.Scheme != Uri.UriSchemeHttps)
+      if (!string.IsNullOrWhiteSpace(calendar.IcsUrl) &&
+          (!Uri.TryCreate(calendar.IcsUrl, UriKind.Absolute, out var icsUri) ||
+          icsUri.Scheme != Uri.UriSchemeHttps))
       {
         throw new ConfigurationException($"Google:Calendars:{calendar.Id}:IcsUrl deve essere un URL HTTPS assoluto.");
       }
+
+      var destinationUri = GetCarbonioCalendarUri(calendar);
+      if (destinationUri.Scheme != Uri.UriSchemeHttps)
+      {
+        throw new ConfigurationException($"Google:Calendars:{calendar.Id}:CarbonioCalendarUrl deve essere un URL HTTPS assoluto.");
+      }
+
     }
   }
 }
@@ -107,23 +121,22 @@ public sealed record CarbonioConfiguration
 {
   public string BaseUrl { get; init; } = "";
   public string Username { get; init; } = "";
-  public string CalendarName { get; init; } = "Google";
-  public string CalendarUrl { get; init; } = "";
-  public bool AllowNonGoogleCalendar { get; init; }
+  public string? CalendarName { get; init; }
+  public string? CalendarUrl { get; init; }
 }
 
 public sealed record GoogleConfiguration
 {
   public string CalendarId { get; init; } = "primary";
   public string IcsUrl { get; init; } = "";
-  public IReadOnlyList<GoogleCalendarConfiguration> Calendars { get; init; } = [];
+  public List<GoogleCalendarConfiguration> Calendars { get; init; } = [];
 
   public IReadOnlyList<GoogleCalendarConfiguration> GetCalendars()
   {
     if (Calendars.Count > 0)
     {
       return Calendars
-        .Where(calendar => !string.IsNullOrWhiteSpace(calendar.IcsUrl))
+        .Where(calendar => !string.IsNullOrWhiteSpace(calendar.Id))
         .Select(calendar => calendar with
         {
           Id = string.IsNullOrWhiteSpace(calendar.Id) ? CalendarId : calendar.Id
@@ -133,15 +146,39 @@ public sealed record GoogleConfiguration
 
     return string.IsNullOrWhiteSpace(IcsUrl)
       ? []
-      : [new GoogleCalendarConfiguration(CalendarId, IcsUrl, null, UseLegacyUid: true)];
+      : [new GoogleCalendarConfiguration(CalendarId, IcsUrl, null, useLegacyUid: true)];
   }
 }
 
-public sealed record GoogleCalendarConfiguration(
-  string Id,
-  string IcsUrl,
-  string? TitlePrefix = null,
-  bool UseLegacyUid = false);
+public sealed record GoogleCalendarConfiguration
+{
+  public GoogleCalendarConfiguration()
+  {
+  }
+
+  public GoogleCalendarConfiguration(
+    string id,
+    string? icsUrl,
+    string? titlePrefix = null,
+    bool useLegacyUid = false,
+    string? carbonioCalendarName = null,
+    string? carbonioCalendarUrl = null)
+  {
+    Id = id;
+    IcsUrl = icsUrl;
+    TitlePrefix = titlePrefix;
+    UseLegacyUid = useLegacyUid;
+    CarbonioCalendarName = carbonioCalendarName;
+    CarbonioCalendarUrl = carbonioCalendarUrl;
+  }
+
+  public string Id { get; init; } = "";
+  public string? IcsUrl { get; init; }
+  public string? TitlePrefix { get; init; }
+  public bool UseLegacyUid { get; init; }
+  public string? CarbonioCalendarName { get; init; }
+  public string? CarbonioCalendarUrl { get; init; }
+}
 
 public sealed record SyncConfiguration
 {

@@ -16,6 +16,13 @@ public sealed class CalDavResponseParser
       response.Descendants(CalDav + "calendar").Any());
   }
 
+  public bool IsCalendarResource(string xml)
+  {
+    var document = XDocument.Parse(xml);
+    return document.Descendants(Dav + "response")
+      .Any(response => response.Descendants(CalDav + "calendar").Any());
+  }
+
   public IReadOnlyList<CalDavResource> ParseCalendarMultistatus(string xml, Uri calendarUri)
   {
     var document = XDocument.Parse(xml);

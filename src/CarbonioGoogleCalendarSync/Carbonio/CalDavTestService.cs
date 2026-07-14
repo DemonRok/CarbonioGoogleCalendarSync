@@ -15,20 +15,27 @@ public sealed class CalDavTestService(
   {
     var password = await credentialStore.GetCarbonioPasswordAsync(configuration.Carbonio.Username, cancellationToken)
       ?? passwordReader.ReadPassword("Password Carbonio: ");
+    logger.LogInformation("Avvio test CalDAV Carbonio");
+    var targetsResult = await ValidateTargetsAsync(password, cancellationToken);
+    if (targetsResult != ExitCodes.Success)
+    {
+      return targetsResult;
+    }
+
+    var firstCalendar = configuration.Google.GetCalendars().First();
+    var firstCalendarUri = configuration.GetCarbonioCalendarUri(firstCalendar);
     var uid = CalDavUtilities.GenerateTestUid();
-    var eventUri = client.BuildEventUri(uid);
+    var eventUri = client.BuildEventUri(firstCalendarUri, uid);
     string? etag = null;
 
-    logger.LogInformation("Avvio test CalDAV Carbonio");
-
-    var propFind = await client.PropFindCalendarAsync(password, cancellationToken);
+    var propFind = await client.PropFindCalendarAsync(firstCalendarUri, password, cancellationToken);
     PrintStatus("PROPFIND calendario", propFind);
     if (propFind.StatusCode is HttpStatusCode.Unauthorized)
     {
       return ExitCodes.AuthenticationFailed;
     }
 
-    if (propFind.StatusCode != (HttpStatusCode)207 || propFind.Body is null || !client.IsCalendarResource(propFind.Body))
+    if (propFind.StatusCode != (HttpStatusCode)207 || propFind.Body is null || !client.IsCalendarResourceAtUri(propFind.Body))
     {
       return ExitCodes.CalendarNotFound;
     }
@@ -100,6 +107,39 @@ public sealed class CalDavTestService(
       {
         ["X-CARBONIO-GOOGLE-SYNC"] = "TRUE"
       });
+  }
+
+  private async Task<int> ValidateTargetsAsync(string password, CancellationToken cancellationToken)
+  {
+    var targets = configuration.Google.GetCalendars()
+      .Select(calendar => new
+      {
+        Name = configuration.GetCarbonioCalendarName(calendar),
+        Uri = configuration.GetCarbonioCalendarUri(calendar)
+      })
+      .GroupBy(target => target.Uri.AbsoluteUri, StringComparer.OrdinalIgnoreCase)
+      .Select(group => group.First())
+      .ToList();
+
+    foreach (var target in targets)
+    {
+      var propFind = await client.PropFindCalendarAsync(target.Uri, password, cancellationToken);
+      PrintStatus($"PROPFIND calendario {target.Name}", propFind);
+      if (propFind.StatusCode == HttpStatusCode.Unauthorized)
+      {
+        return ExitCodes.AuthenticationFailed;
+      }
+
+      if (propFind.StatusCode != (HttpStatusCode)207 ||
+          propFind.Body is null ||
+          !client.IsCalendarResourceAtUri(propFind.Body))
+      {
+        Console.WriteLine($"Carbonio calendar not found or not accessible: {target.Name} ({target.Uri})");
+        return ExitCodes.CalendarNotFound;
+      }
+    }
+
+    return ExitCodes.Success;
   }
 
   private static void PrintStatus(string operation, CalDavOperationResult result)

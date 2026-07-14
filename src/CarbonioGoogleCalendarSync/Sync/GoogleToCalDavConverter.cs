@@ -15,7 +15,7 @@ public sealed class GoogleToCalDavConverter(AppConfiguration configuration)
 
   public string GetUid(GoogleCalendarConfiguration source, GoogleCalendarEvent googleEvent)
   {
-    return source.UseLegacyUid
+    return source.UseLegacyUid || source.Id.Equals("primary", StringComparison.OrdinalIgnoreCase)
       ? GetUid(googleEvent)
       : CalDavUtilities.GenerateGoogleUid($"{source.Id}:{googleEvent.Id}");
   }
@@ -23,7 +23,7 @@ public sealed class GoogleToCalDavConverter(AppConfiguration configuration)
   public string ConvertToICalendar(GoogleCalendarEvent googleEvent)
   {
     return ConvertToICalendar(
-      new GoogleCalendarConfiguration(configuration.Google.CalendarId, configuration.Google.IcsUrl, configuration.Sync.ImportedTitlePrefix, UseLegacyUid: true),
+      new GoogleCalendarConfiguration(configuration.Google.CalendarId, configuration.Google.IcsUrl, configuration.Sync.ImportedTitlePrefix, useLegacyUid: true),
       googleEvent);
   }
 

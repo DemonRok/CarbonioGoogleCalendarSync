@@ -63,8 +63,8 @@ public sealed class SyncStateStoreTests
     return new AppConfiguration(
       new CarbonioConfiguration
       {
-        Username = "user@example.local",
-        CalendarUrl = "https://webmail.example.local/dav/user%40example.local/Google/"
+        BaseUrl = "https://webmail.example.local",
+        Username = "user@example.local"
       },
       new GoogleConfiguration { CalendarId = "primary", IcsUrl = "https://calendar.google.com/calendar/ical/example/basic.ics" },
       new SyncConfiguration { StateDatabasePath = path },

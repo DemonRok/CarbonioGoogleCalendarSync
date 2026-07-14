@@ -87,7 +87,7 @@ public sealed class GoogleToCalDavConverterTests
       "primary",
       "https://calendar.google.com/calendar/ical/primary/private-token/basic.ics",
       "(G)",
-      UseLegacyUid: true);
+      useLegacyUid: true);
     var additionalSource = new GoogleCalendarConfiguration(
       "work",
       "https://calendar.google.com/calendar/ical/work/private-token/basic.ics",
@@ -104,8 +104,8 @@ public sealed class GoogleToCalDavConverterTests
     return new AppConfiguration(
       new CarbonioConfiguration
       {
-        Username = "user@example.local",
-        CalendarUrl = "https://webmail.example.local/dav/user%40example.local/Google/"
+        BaseUrl = "https://webmail.example.local",
+        Username = "user@example.local"
       },
       new GoogleConfiguration { CalendarId = "primary" },
       new SyncConfiguration(),

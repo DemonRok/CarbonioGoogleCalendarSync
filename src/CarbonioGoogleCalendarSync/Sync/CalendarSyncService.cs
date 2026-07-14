@@ -23,12 +23,20 @@ public sealed class CalendarSyncService(
 
     logger.LogInformation("Avvio sincronizzazione Google -> Carbonio. DryRun={DryRun}", dryRun);
     await stateStore.InitializeAsync(cancellationToken);
+    var password = await credentialStore.GetCarbonioPasswordAsync(configuration.Carbonio.Username, cancellationToken)
+      ?? (dryRun ? null : passwordReader.ReadPassword("Password Carbonio: "));
+    if (password is not null)
+    {
+      var validationExitCode = await ValidateCarbonioTargetsAsync(password, cancellationToken);
+      if (validationExitCode != ExitCodes.Success)
+      {
+        return validationExitCode;
+      }
+    }
+
     var events = await googleClient.GetEventsAsync(cancellationToken);
     var stateByGoogleId = await stateStore.LoadActiveByGoogleIdAsync(cancellationToken);
     var currentGoogleIds = events.Select(item => StateKey(item.Source.Id, item.Event.Id)).ToHashSet(StringComparer.Ordinal);
-
-    var password = await credentialStore.GetCarbonioPasswordAsync(configuration.Carbonio.Username, cancellationToken)
-      ?? (dryRun ? null : passwordReader.ReadPassword("Password Carbonio: "));
     var managedResources = password is null
       ? new Dictionary<string, CalDavResource>(StringComparer.Ordinal)
       : await LoadStateResourcesAsync(stateByGoogleId.Values, password, cancellationToken);
@@ -119,7 +127,8 @@ public sealed class CalendarSyncService(
       var ics = converter.ConvertToICalendar(googleEvent.Source, googleEvent.Event);
       var hash = converter.ComputeHash(googleEvent.Source, googleEvent.Event);
       var uid = converter.GetUid(googleEvent.Source, googleEvent.Event);
-      var url = calDavClient.BuildEventUri(uid);
+      var calendarUri = configuration.GetCarbonioCalendarUri(googleEvent.Source);
+      var url = calDavClient.BuildEventUri(calendarUri, uid);
       var item = new GoogleEventPlan(googleEvent, uid, url, ics, hash);
 
       if (!stateByGoogleId.TryGetValue(StateKey(googleEvent.Source.Id, googleEvent.Event.Id), out var state))
@@ -148,21 +157,55 @@ public sealed class CalendarSyncService(
     return new SyncPlan(creates, recreates, updates, deletes, unchanged);
   }
 
+  private async Task<int> ValidateCarbonioTargetsAsync(string password, CancellationToken cancellationToken)
+  {
+    var targets = configuration.Google.GetCalendars()
+      .Select(calendar => new
+      {
+        CalendarId = calendar.Id,
+        Name = configuration.GetCarbonioCalendarName(calendar),
+        Uri = configuration.GetCarbonioCalendarUri(calendar)
+      })
+      .GroupBy(target => target.Uri.AbsoluteUri, StringComparer.OrdinalIgnoreCase)
+      .Select(group => group.First())
+      .ToList();
+
+    foreach (var target in targets)
+    {
+      var propFind = await calDavClient.PropFindCalendarAsync(target.Uri, password, cancellationToken);
+      if (propFind.StatusCode == HttpStatusCode.Unauthorized)
+      {
+        Console.WriteLine($"Carbonio authentication failed while checking calendar '{target.Name}'.");
+        return ExitCodes.AuthenticationFailed;
+      }
+
+      if (propFind.StatusCode != (HttpStatusCode)207 ||
+          propFind.Body is null ||
+          !calDavClient.IsCalendarResourceAtUri(propFind.Body))
+      {
+        Console.WriteLine($"Carbonio calendar not found or not accessible: {target.Name} ({target.Uri})");
+        return ExitCodes.CalendarNotFound;
+      }
+    }
+
+    return ExitCodes.Success;
+  }
+
   private static void PrintPlan(SyncPlan plan)
   {
     foreach (var item in plan.Creates)
     {
-      Console.WriteLine($"CREATE: {item.GoogleEvent.Event.Summary} | Calendar={item.GoogleEvent.Source.Id} | GoogleId={item.GoogleEvent.Event.Id} | Hash={item.Hash[..12]}");
+      Console.WriteLine($"CREATE: {item.GoogleEvent.Event.Summary} | Calendar={item.GoogleEvent.Source.Id} | Target={item.GoogleEvent.Source.CarbonioCalendarName ?? "default"} | GoogleId={item.GoogleEvent.Event.Id} | Hash={item.Hash[..12]}");
     }
 
     foreach (var item in plan.Updates)
     {
-      Console.WriteLine($"UPDATE: {item.GoogleEvent.Event.Summary} | Calendar={item.GoogleEvent.Source.Id} | GoogleId={item.GoogleEvent.Event.Id} | Hash={item.Hash[..12]}");
+      Console.WriteLine($"UPDATE: {item.GoogleEvent.Event.Summary} | Calendar={item.GoogleEvent.Source.Id} | Target={item.GoogleEvent.Source.CarbonioCalendarName ?? "default"} | GoogleId={item.GoogleEvent.Event.Id} | Hash={item.Hash[..12]}");
     }
 
     foreach (var item in plan.Recreates)
     {
-      Console.WriteLine($"RECREATE: {item.GoogleEvent.Event.Summary} | Calendar={item.GoogleEvent.Source.Id} | GoogleId={item.GoogleEvent.Event.Id} | Hash={item.Hash[..12]}");
+      Console.WriteLine($"RECREATE: {item.GoogleEvent.Event.Summary} | Calendar={item.GoogleEvent.Source.Id} | Target={item.GoogleEvent.Source.CarbonioCalendarName ?? "default"} | GoogleId={item.GoogleEvent.Event.Id} | Hash={item.Hash[..12]}");
     }
 
     foreach (var item in plan.Deletes)

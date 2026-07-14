@@ -7,9 +7,14 @@ namespace CarbonioGoogleCalendarSync.Carbonio;
 
 public sealed class CalDavClient(HttpClient httpClient, AppConfiguration configuration, CalDavResponseParser parser)
 {
-  private readonly Uri _calendarUri = new(configuration.Carbonio.CalendarUrl);
+  private readonly Uri _calendarUri = configuration.GetCarbonioCalendarUri();
 
   public async Task<CalDavOperationResult> PropFindCalendarAsync(string password, CancellationToken cancellationToken)
+  {
+    return await PropFindCalendarAsync(_calendarUri, password, cancellationToken);
+  }
+
+  public async Task<CalDavOperationResult> PropFindCalendarAsync(Uri calendarUri, string password, CancellationToken cancellationToken)
   {
     const string body = """
       <?xml version="1.0" encoding="utf-8" ?>
@@ -20,7 +25,7 @@ public sealed class CalDavClient(HttpClient httpClient, AppConfiguration configu
         </D:prop>
       </D:propfind>
       """;
-    using var request = CreateRequest(new HttpMethod("PROPFIND"), _calendarUri, password);
+    using var request = CreateRequest(new HttpMethod("PROPFIND"), calendarUri, password);
     request.Headers.Add("Depth", "0");
     request.Content = XmlContent(body);
     return await SendAsync(request, cancellationToken);
@@ -68,6 +73,11 @@ public sealed class CalDavClient(HttpClient httpClient, AppConfiguration configu
 
   public async Task<CalDavOperationResult> ReportManagedEventsAsync(string password, CancellationToken cancellationToken)
   {
+    return await ReportManagedEventsAsync(_calendarUri, password, cancellationToken);
+  }
+
+  public async Task<CalDavOperationResult> ReportManagedEventsAsync(Uri calendarUri, string password, CancellationToken cancellationToken)
+  {
     const string body = """
       <?xml version="1.0" encoding="utf-8" ?>
       <C:calendar-query xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
@@ -86,7 +96,7 @@ public sealed class CalDavClient(HttpClient httpClient, AppConfiguration configu
         </C:filter>
       </C:calendar-query>
       """;
-    using var request = CreateRequest(new HttpMethod("REPORT"), _calendarUri, password);
+    using var request = CreateRequest(new HttpMethod("REPORT"), calendarUri, password);
     request.Headers.Add("Depth", "1");
     request.Content = XmlContent(body);
     return await SendAsync(request, cancellationToken);
@@ -105,7 +115,17 @@ public sealed class CalDavClient(HttpClient httpClient, AppConfiguration configu
 
   public bool IsCalendarResource(string xml)
   {
-    return parser.IsCalendarResource(xml, configuration.Carbonio.CalendarName);
+    return parser.IsCalendarResource(xml, configuration.GetCarbonioCalendarName());
+  }
+
+  public bool IsCalendarResourceAtUri(string xml)
+  {
+    return parser.IsCalendarResource(xml);
+  }
+
+  public bool IsCalendarResource(string xml, string calendarName)
+  {
+    return parser.IsCalendarResource(xml, calendarName);
   }
 
   public IReadOnlyList<CalDavResource> ParseReport(string xml)
@@ -113,9 +133,19 @@ public sealed class CalDavClient(HttpClient httpClient, AppConfiguration configu
     return parser.ParseCalendarMultistatus(xml, _calendarUri);
   }
 
+  public IReadOnlyList<CalDavResource> ParseReport(string xml, Uri calendarUri)
+  {
+    return parser.ParseCalendarMultistatus(xml, calendarUri);
+  }
+
   public Uri BuildEventUri(string uid)
   {
     return CalDavUtilities.BuildEventUri(_calendarUri, uid);
+  }
+
+  public Uri BuildEventUri(Uri calendarUri, string uid)
+  {
+    return CalDavUtilities.BuildEventUri(calendarUri, uid);
   }
 
   private HttpRequestMessage CreateRequest(HttpMethod method, Uri uri, string password)
