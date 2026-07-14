@@ -99,7 +99,7 @@ The dry-run reads events in the configured window, converts them to iCalendar an
 
 ### Multiple Google Calendars
 
-For a single source calendar, the GUI fields are enough. For multiple Google calendars, add entries to `Google:Calendars` in the user configuration:
+For multiple Google calendars, add one row per calendar in the GUI or edit `Google:Calendars` in the user configuration:
 
 ```json
 {
@@ -126,7 +126,7 @@ For a single source calendar, the GUI fields are enough. For multiple Google cal
 
 Each calendar needs a stable `Id`, its own private ICS URL and, optionally, a title prefix. `UseLegacyUid` should remain `true` only for the first calendar when migrating from a previous single-calendar setup, so already imported events keep the same CalDAV UID. Additional calendars should use `false` to avoid UID collisions when different calendars contain events with the same Google event id.
 
-The GUI edits the first configured Google calendar and preserves additional calendars when saving the configuration.
+The GUI edits the complete configured Google calendar list. Saved private ICS URLs are shown as `********`; edit the cell only when you want to replace that URL.
 
 ## Real Synchronization
 
@@ -208,8 +208,8 @@ From the GUI you can:
 - lock the Carbonio calendar to `Google` when **Allow non-dedicated calendar** is not selected;
 - save/use the CalDAV URL internally with the correct `%40` escaping;
 - explicitly allow a non-dedicated Carbonio calendar, for example the main calendar;
-- configure the first Google ICS URL while showing the normal `@` in the GUI;
-- preserve additional Google calendars configured in `Google:Calendars`;
+- configure one or more Google ICS URLs while showing the normal `@` in the GUI;
+- add and remove Google calendars from the configuration grid;
 - save/use the ICS URL internally with the correct escaping when needed;
 - hide the saved Google ICS URL by showing `********`, because it is a private URL;
 - configure the title prefix for imported events, default `(G) `;

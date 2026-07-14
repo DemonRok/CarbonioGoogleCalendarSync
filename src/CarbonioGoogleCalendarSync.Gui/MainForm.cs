@@ -13,9 +13,7 @@ public sealed class MainForm : Form
   private readonly TextBox _carbonioCalendarName = new();
   private readonly TextBox _carbonioCalendarUrl = new();
   private readonly CheckBox _allowNonGoogleCalendar = new();
-  private readonly TextBox _googleCalendarId = new();
-  private readonly TextBox _googleIcsUrl = new();
-  private readonly TextBox _importedTitlePrefix = new();
+  private readonly DataGridView _googleCalendars = new();
   private readonly NumericUpDown _pastDays = new();
   private readonly NumericUpDown _futureDays = new();
   private readonly CheckBox _deleteRemoved = new();
@@ -33,7 +31,6 @@ public sealed class MainForm : Form
   private readonly Label _taskStatusDot = new();
   private readonly Label _taskStatusText = new();
   private bool _passwordPlaceholderActive;
-  private bool _googleIcsPlaceholderActive;
   private bool _loadingConfig;
 
   private static string AppDataDirectory => Path.Combine(
@@ -62,7 +59,6 @@ public sealed class MainForm : Form
     Load += (_, _) => LoadConfig();
     Shown += async (_, _) => await RefreshTaskStatusAsync();
     _password.Enter += (_, _) => ClearPasswordPlaceholder();
-    _googleIcsUrl.Enter += (_, _) => ClearGoogleIcsPlaceholder();
     _carbonioBaseUrl.TextChanged += (_, _) => RefreshCalDavUrl();
     _carbonioUsername.TextChanged += (_, _) => RefreshCalDavUrl();
     _carbonioCalendarName.TextChanged += (_, _) => RefreshCalDavUrl();
@@ -99,9 +95,7 @@ public sealed class MainForm : Form
     AddCheckRow(form, "Allow non-dedicated calendar", _allowNonGoogleCalendar);
     AddTextRow(form, "Carbonio Calendar", _carbonioCalendarName);
     AddTextRow(form, "Carbonio CalDAV URL", _carbonioCalendarUrl);
-    AddTextRow(form, "Google Calendar ID", _googleCalendarId);
-    AddTextRow(form, "URL ICS Google", _googleIcsUrl);
-    AddTextRow(form, "Imported title prefix", _importedTitlePrefix);
+    AddControlRow(form, "Google Calendars", BuildGoogleCalendarsPanel(), 132);
     AddNumberRow(form, "Past days", _pastDays, 0, 3650);
     AddNumberRow(form, "Future days", _futureDays, 1, 3650);
     AddCheckRow(form, "Delete removed", _deleteRemoved);
@@ -367,6 +361,83 @@ public sealed class MainForm : Form
     return statusPanel;
   }
 
+  private Control BuildGoogleCalendarsPanel()
+  {
+    _googleCalendars.Dock = DockStyle.Fill;
+    _googleCalendars.AllowUserToAddRows = false;
+    _googleCalendars.AllowUserToDeleteRows = false;
+    _googleCalendars.RowHeadersVisible = false;
+    _googleCalendars.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+    _googleCalendars.MultiSelect = false;
+    _googleCalendars.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
+    _googleCalendars.Columns.Clear();
+    _googleCalendars.Columns.Add(new DataGridViewTextBoxColumn
+    {
+      Name = "Id",
+      HeaderText = "Calendar ID",
+      FillWeight = 18
+    });
+    _googleCalendars.Columns.Add(new DataGridViewTextBoxColumn
+    {
+      Name = "IcsUrl",
+      HeaderText = "Private ICS URL",
+      FillWeight = 56
+    });
+    _googleCalendars.Columns.Add(new DataGridViewTextBoxColumn
+    {
+      Name = "TitlePrefix",
+      HeaderText = "Prefix",
+      FillWeight = 12
+    });
+    _googleCalendars.Columns.Add(new DataGridViewCheckBoxColumn
+    {
+      Name = "UseLegacyUid",
+      HeaderText = "Legacy UID",
+      FillWeight = 14
+    });
+    _googleCalendars.CellBeginEdit += (_, e) =>
+    {
+      if (_googleCalendars.Columns[e.ColumnIndex].Name != "IcsUrl")
+      {
+        return;
+      }
+
+      var cell = _googleCalendars.Rows[e.RowIndex].Cells[e.ColumnIndex];
+      if (string.Equals(Convert.ToString(cell.Value), "********", StringComparison.Ordinal))
+      {
+        cell.Value = "";
+        _googleCalendars.Rows[e.RowIndex].Tag = null;
+      }
+    };
+
+    var addButton = MakeButton("Add Calendar", (_, _) => AddGoogleCalendarRow("calendar", "", "(G) ", false));
+    addButton.Width = 140;
+    var removeButton = MakeButton("Remove Calendar", (_, _) => RemoveSelectedGoogleCalendar());
+    removeButton.Width = 150;
+
+    var buttons = new FlowLayoutPanel
+    {
+      Dock = DockStyle.Fill,
+      FlowDirection = FlowDirection.LeftToRight,
+      WrapContents = false,
+      Margin = new Padding(0, 6, 0, 0)
+    };
+    buttons.Controls.Add(addButton);
+    buttons.Controls.Add(removeButton);
+
+    var panel = new TableLayoutPanel
+    {
+      Dock = DockStyle.Fill,
+      ColumnCount = 1,
+      RowCount = 2
+    };
+    panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+    panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));
+    panel.Controls.Add(_googleCalendars, 0, 0);
+    panel.Controls.Add(buttons, 0, 1);
+    return panel;
+  }
+
   private void LoadConfig()
   {
     try
@@ -397,10 +468,7 @@ public sealed class MainForm : Form
       _carbonioCalendarName.Text = model.Carbonio?.CalendarName ?? "Google";
       _carbonioCalendarUrl.Text = ToDisplayCalDavUrl(model.Carbonio?.CalendarUrl ?? "");
       _allowNonGoogleCalendar.Checked = model.Carbonio?.AllowNonGoogleCalendar ?? false;
-      var firstGoogleCalendar = model.Google?.Calendars.Count > 0 ? model.Google.Calendars[0] : null;
-      _googleCalendarId.Text = firstGoogleCalendar?.Id ?? model.Google?.CalendarId ?? "primary";
-      SetGoogleIcsPlaceholderIfConfigured(firstGoogleCalendar?.IcsUrl ?? model.Google?.IcsUrl);
-      _importedTitlePrefix.Text = firstGoogleCalendar?.TitlePrefix ?? model.Sync?.ImportedTitlePrefix ?? "(G) ";
+      LoadGoogleCalendars(model);
       _pastDays.Value = Clamp(model.Sync?.PastDays ?? 30, _pastDays.Minimum, _pastDays.Maximum);
       _futureDays.Value = Clamp(model.Sync?.FutureDays ?? 365, _futureDays.Minimum, _futureDays.Maximum);
       _deleteRemoved.Checked = model.Sync?.DeleteRemovedEvents ?? true;
@@ -426,15 +494,131 @@ public sealed class MainForm : Form
     _carbonioCalendarName.Text = "Google";
     _allowNonGoogleCalendar.Checked = false;
     _carbonioCalendarUrl.Text = BuildCalDavUrl(_carbonioBaseUrl.Text, _carbonioUsername.Text, _carbonioCalendarName.Text);
-    _googleCalendarId.Text = "primary";
-    _googleIcsUrl.Text = "https://calendar.google.com/calendar/ical/your-calendar-id/private-token/basic.ics";
-    _googleIcsPlaceholderActive = false;
-    _importedTitlePrefix.Text = "(G) ";
+    LoadGoogleCalendars(new ConfigFileModel
+    {
+      Google = new GoogleFileModel
+      {
+        CalendarId = "primary",
+        IcsUrl = "https://calendar.google.com/calendar/ical/your-calendar-id/private-token/basic.ics",
+        Calendars =
+        [
+          new GoogleCalendarFileModel(
+            "primary",
+            "https://calendar.google.com/calendar/ical/your-calendar-id/private-token/basic.ics",
+            "(G) ",
+            true)
+        ]
+      },
+      Sync = new SyncFileModel { ImportedTitlePrefix = "(G) " }
+    });
     _pastDays.Value = 30;
     _futureDays.Value = 365;
     _deleteRemoved.Checked = true;
     _password.Clear();
     _passwordPlaceholderActive = false;
+  }
+
+  private void LoadGoogleCalendars(ConfigFileModel model)
+  {
+    _googleCalendars.Rows.Clear();
+    var calendars = model.Google?.Calendars.Count > 0
+      ? model.Google.Calendars
+      : [];
+
+    if (calendars.Count == 0 && !string.IsNullOrWhiteSpace(model.Google?.IcsUrl))
+    {
+      calendars =
+      [
+        new GoogleCalendarFileModel(
+          model.Google.CalendarId ?? "primary",
+          model.Google.IcsUrl,
+          model.Sync?.ImportedTitlePrefix ?? "(G) ",
+          true)
+      ];
+    }
+
+    if (calendars.Count == 0)
+    {
+      calendars =
+      [
+        new GoogleCalendarFileModel(
+          "primary",
+          "https://calendar.google.com/calendar/ical/your-calendar-id/private-token/basic.ics",
+          "(G) ",
+          true)
+      ];
+    }
+
+    foreach (var calendar in calendars)
+    {
+      AddGoogleCalendarRow(
+        calendar.Id,
+        calendar.IcsUrl,
+        calendar.TitlePrefix ?? model.Sync?.ImportedTitlePrefix ?? "(G) ",
+        calendar.UseLegacyUid,
+        maskIcsUrl: !string.IsNullOrWhiteSpace(calendar.IcsUrl));
+    }
+  }
+
+  private void AddGoogleCalendarRow(
+    string id,
+    string icsUrl,
+    string titlePrefix,
+    bool useLegacyUid,
+    bool maskIcsUrl = false)
+  {
+    var rowIndex = _googleCalendars.Rows.Add(
+      id,
+      maskIcsUrl ? "********" : ToDisplayUrl(icsUrl),
+      titlePrefix,
+      useLegacyUid);
+    _googleCalendars.Rows[rowIndex].Tag = maskIcsUrl ? icsUrl : null;
+  }
+
+  private void RemoveSelectedGoogleCalendar()
+  {
+    if (_googleCalendars.SelectedRows.Count == 0)
+    {
+      return;
+    }
+
+    if (_googleCalendars.Rows.Count <= 1)
+    {
+      AppendOutput("At least one Google calendar must remain configured.");
+      return;
+    }
+
+    _googleCalendars.Rows.RemoveAt(_googleCalendars.SelectedRows[0].Index);
+  }
+
+  private List<GoogleCalendarFileModel> ReadGoogleCalendars()
+  {
+    var calendars = new List<GoogleCalendarFileModel>();
+    foreach (DataGridViewRow row in _googleCalendars.Rows)
+    {
+      if (row.IsNewRow)
+      {
+        continue;
+      }
+
+      var id = Convert.ToString(row.Cells["Id"].Value)?.Trim() ?? "";
+      var displayedIcsUrl = Convert.ToString(row.Cells["IcsUrl"].Value)?.Trim() ?? "";
+      var storedIcsUrl = row.Tag as string;
+      var icsUrl = string.Equals(displayedIcsUrl, "********", StringComparison.Ordinal) && !string.IsNullOrWhiteSpace(storedIcsUrl)
+        ? storedIcsUrl
+        : NormalizeUrl(displayedIcsUrl);
+      var titlePrefix = Convert.ToString(row.Cells["TitlePrefix"].Value) ?? "";
+      var useLegacyUid = Convert.ToBoolean(row.Cells["UseLegacyUid"].Value ?? false);
+
+      if (string.IsNullOrWhiteSpace(id) && string.IsNullOrWhiteSpace(icsUrl))
+      {
+        continue;
+      }
+
+      calendars.Add(new GoogleCalendarFileModel(id, icsUrl, titlePrefix, useLegacyUid));
+    }
+
+    return calendars;
   }
 
   private void SaveConfig()
@@ -457,44 +641,23 @@ public sealed class MainForm : Form
       model.Carbonio.CalendarName = _carbonioCalendarName.Text.Trim();
       model.Carbonio.CalendarUrl = NormalizeCalDavUrl(_carbonioCalendarUrl.Text.Trim());
       model.Carbonio.AllowNonGoogleCalendar = _allowNonGoogleCalendar.Checked;
-      model.Google.CalendarId = _googleCalendarId.Text.Trim();
-      if (!_googleIcsPlaceholderActive)
-      {
-        model.Google.IcsUrl = NormalizeUrl(_googleIcsUrl.Text.Trim());
-      }
-      if (model.Google.Calendars.Count > 0)
-      {
-        var firstCalendarIcsUrl = _googleIcsPlaceholderActive
-          ? model.Google.Calendars[0].IcsUrl
-          : NormalizeUrl(_googleIcsUrl.Text.Trim());
-        model.Google.Calendars[0] = model.Google.Calendars[0] with
-        {
-          Id = _googleCalendarId.Text.Trim(),
-          IcsUrl = firstCalendarIcsUrl,
-          TitlePrefix = _importedTitlePrefix.Text
-        };
-      }
-      else if (!string.IsNullOrWhiteSpace(model.Google.IcsUrl))
-      {
-        model.Google.Calendars.Add(new GoogleCalendarFileModel(
-          _googleCalendarId.Text.Trim(),
-          model.Google.IcsUrl,
-          _importedTitlePrefix.Text,
-          true));
-      }
+      model.Google.Calendars = ReadGoogleCalendars();
+      var firstCalendar = model.Google.Calendars.FirstOrDefault();
+      model.Google.CalendarId = firstCalendar?.Id ?? "primary";
+      model.Google.IcsUrl = firstCalendar?.IcsUrl ?? "";
       model.Sync.Direction = "GoogleToCarbonio";
       model.Sync.PastDays = (int)_pastDays.Value;
       model.Sync.FutureDays = (int)_futureDays.Value;
       model.Sync.DeleteRemovedEvents = _deleteRemoved.Checked;
       model.Sync.StateDatabasePath = string.IsNullOrWhiteSpace(model.Sync.StateDatabasePath) ? "state/sync-state.db" : model.Sync.StateDatabasePath;
-      model.Sync.ImportedTitlePrefix = _importedTitlePrefix.Text;
+      model.Sync.ImportedTitlePrefix = firstCalendar?.TitlePrefix ?? "(G) ";
       model.Logging.Directory = string.IsNullOrWhiteSpace(model.Logging.Directory) ? "logs" : model.Logging.Directory;
       model.Logging.MinimumLevel = string.IsNullOrWhiteSpace(model.Logging.MinimumLevel) ? "Information" : model.Logging.MinimumLevel;
       model.Logging.RetentionDays = model.Logging.RetentionDays <= 0 ? 30 : model.Logging.RetentionDays;
       model.Http.TimeoutSeconds = model.Http.TimeoutSeconds <= 0 ? 60 : model.Http.TimeoutSeconds;
 
       File.WriteAllText(ConfigPath, JsonSerializer.Serialize(model, JsonOptions()));
-      SetGoogleIcsPlaceholderIfConfigured(model.Google.IcsUrl);
+      LoadGoogleCalendars(model);
       AppendOutput("Configuration saved.");
     }
     catch (Exception ex)
@@ -985,6 +1148,15 @@ public sealed class MainForm : Form
     form.Controls.Add(control, 1, row);
   }
 
+  private static void AddControlRow(TableLayoutPanel form, string label, Control control, int height)
+  {
+    var row = form.Controls.Count / 2;
+    form.RowCount = row + 1;
+    form.RowStyles.Add(new RowStyle(SizeType.Absolute, height));
+    form.Controls.Add(new Label { Text = label, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft }, 0, row);
+    form.Controls.Add(control, 1, row);
+  }
+
   private static void AddInfoRow(TableLayoutPanel form, string label, string value)
   {
     var row = form.Controls.Count / 2;
@@ -1041,30 +1213,6 @@ public sealed class MainForm : Form
 
     _passwordPlaceholderActive = false;
     _password.Clear();
-  }
-
-  private void SetGoogleIcsPlaceholderIfConfigured(string? value)
-  {
-    if (string.IsNullOrWhiteSpace(value))
-    {
-      _googleIcsUrl.Clear();
-      _googleIcsPlaceholderActive = false;
-      return;
-    }
-
-    _googleIcsPlaceholderActive = true;
-    _googleIcsUrl.Text = "********";
-  }
-
-  private void ClearGoogleIcsPlaceholder()
-  {
-    if (!_googleIcsPlaceholderActive)
-    {
-      return;
-    }
-
-    _googleIcsPlaceholderActive = false;
-    _googleIcsUrl.Clear();
   }
 
   private static Button MakeButton(string text, EventHandler handler)
