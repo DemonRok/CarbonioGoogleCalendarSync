@@ -374,7 +374,8 @@ public sealed class MainForm : Form
     _googleCalendars.Columns.Add(new DataGridViewTextBoxColumn
     {
       Name = "Id",
-      HeaderText = "Calendar ID",
+      HeaderText = "Local sync ID",
+      ToolTipText = "Arbitrary local name used by the synchronizer, for example primary, work or family.",
       FillWeight = 18
     });
     _googleCalendars.Columns.Add(new DataGridViewTextBoxColumn
@@ -386,13 +387,15 @@ public sealed class MainForm : Form
     _googleCalendars.Columns.Add(new DataGridViewTextBoxColumn
     {
       Name = "TitlePrefix",
-      HeaderText = "Prefix",
+      HeaderText = "Title prefix",
+      ToolTipText = "Write only the marker, for example (G). The space before the event title is added automatically.",
       FillWeight = 12
     });
     _googleCalendars.Columns.Add(new DataGridViewCheckBoxColumn
     {
       Name = "UseLegacyUid",
-      HeaderText = "Legacy UID",
+      HeaderText = "Already synced before",
+      ToolTipText = "Use only for the first calendar when migrating events already imported by an older version.",
       FillWeight = 14
     });
     _googleCalendars.CellBeginEdit += (_, e) =>
@@ -410,7 +413,7 @@ public sealed class MainForm : Form
       }
     };
 
-    var addButton = MakeButton("Add Calendar", (_, _) => AddGoogleCalendarRow("calendar", "", "(G) ", false));
+    var addButton = MakeButton("Add Calendar", (_, _) => AddGoogleCalendarRow("calendar", "", "(G)", false));
     addButton.Width = 140;
     var removeButton = MakeButton("Remove Calendar", (_, _) => RemoveSelectedGoogleCalendar());
     removeButton.Width = 150;
@@ -505,11 +508,11 @@ public sealed class MainForm : Form
           new GoogleCalendarFileModel(
             "primary",
             "https://calendar.google.com/calendar/ical/your-calendar-id/private-token/basic.ics",
-            "(G) ",
+            "(G)",
             true)
         ]
       },
-      Sync = new SyncFileModel { ImportedTitlePrefix = "(G) " }
+      Sync = new SyncFileModel { ImportedTitlePrefix = "(G)" }
     });
     _pastDays.Value = 30;
     _futureDays.Value = 365;
@@ -532,7 +535,7 @@ public sealed class MainForm : Form
         new GoogleCalendarFileModel(
           model.Google.CalendarId ?? "primary",
           model.Google.IcsUrl,
-          model.Sync?.ImportedTitlePrefix ?? "(G) ",
+          model.Sync?.ImportedTitlePrefix ?? "(G)",
           true)
       ];
     }
@@ -544,7 +547,7 @@ public sealed class MainForm : Form
         new GoogleCalendarFileModel(
           "primary",
           "https://calendar.google.com/calendar/ical/your-calendar-id/private-token/basic.ics",
-          "(G) ",
+          "(G)",
           true)
       ];
     }
@@ -554,7 +557,7 @@ public sealed class MainForm : Form
       AddGoogleCalendarRow(
         calendar.Id,
         calendar.IcsUrl,
-        calendar.TitlePrefix ?? model.Sync?.ImportedTitlePrefix ?? "(G) ",
+        NormalizeTitlePrefixForConfig(calendar.TitlePrefix ?? model.Sync?.ImportedTitlePrefix ?? "(G)"),
         calendar.UseLegacyUid,
         maskIcsUrl: !string.IsNullOrWhiteSpace(calendar.IcsUrl));
     }
@@ -607,7 +610,7 @@ public sealed class MainForm : Form
       var icsUrl = string.Equals(displayedIcsUrl, "********", StringComparison.Ordinal) && !string.IsNullOrWhiteSpace(storedIcsUrl)
         ? storedIcsUrl
         : NormalizeUrl(displayedIcsUrl);
-      var titlePrefix = Convert.ToString(row.Cells["TitlePrefix"].Value) ?? "";
+      var titlePrefix = NormalizeTitlePrefixForConfig(Convert.ToString(row.Cells["TitlePrefix"].Value));
       var useLegacyUid = Convert.ToBoolean(row.Cells["UseLegacyUid"].Value ?? false);
 
       if (string.IsNullOrWhiteSpace(id) && string.IsNullOrWhiteSpace(icsUrl))
@@ -650,7 +653,7 @@ public sealed class MainForm : Form
       model.Sync.FutureDays = (int)_futureDays.Value;
       model.Sync.DeleteRemovedEvents = _deleteRemoved.Checked;
       model.Sync.StateDatabasePath = string.IsNullOrWhiteSpace(model.Sync.StateDatabasePath) ? "state/sync-state.db" : model.Sync.StateDatabasePath;
-      model.Sync.ImportedTitlePrefix = firstCalendar?.TitlePrefix ?? "(G) ";
+      model.Sync.ImportedTitlePrefix = firstCalendar?.TitlePrefix ?? "(G)";
       model.Logging.Directory = string.IsNullOrWhiteSpace(model.Logging.Directory) ? "logs" : model.Logging.Directory;
       model.Logging.MinimumLevel = string.IsNullOrWhiteSpace(model.Logging.MinimumLevel) ? "Information" : model.Logging.MinimumLevel;
       model.Logging.RetentionDays = model.Logging.RetentionDays <= 0 ? 30 : model.Logging.RetentionDays;
@@ -1296,6 +1299,11 @@ public sealed class MainForm : Form
   private static string ToDisplayUrl(string value)
   {
     return value.Replace("%40", "@", StringComparison.OrdinalIgnoreCase);
+  }
+
+  private static string NormalizeTitlePrefixForConfig(string? value)
+  {
+    return string.IsNullOrWhiteSpace(value) ? "" : value.Trim();
   }
 
   private static decimal Clamp(int value, decimal min, decimal max)

@@ -110,13 +110,23 @@ public sealed class GoogleToCalDavConverter(AppConfiguration configuration)
 
   private string GetImportedSummary(GoogleCalendarConfiguration? source, string summary)
   {
-    var prefix = source?.TitlePrefix ?? configuration.Sync.ImportedTitlePrefix;
+    var prefix = NormalizeTitlePrefix(source?.TitlePrefix ?? configuration.Sync.ImportedTitlePrefix);
     if (string.IsNullOrEmpty(prefix) || summary.StartsWith(prefix, StringComparison.Ordinal))
     {
       return summary;
     }
 
     return prefix + summary;
+  }
+
+  private static string NormalizeTitlePrefix(string? prefix)
+  {
+    if (string.IsNullOrWhiteSpace(prefix))
+    {
+      return "";
+    }
+
+    return prefix.Trim() + " ";
   }
 
   private static string MapStatus(string status)

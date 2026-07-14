@@ -47,7 +47,7 @@ public sealed class ConfigInitializer
           {
             Id = googleCalendarId,
             IcsUrl = googleIcsUrl,
-            TitlePrefix = "(G) ",
+            TitlePrefix = "(G)",
             UseLegacyUid = true
           }
         }
@@ -60,7 +60,7 @@ public sealed class ConfigInitializer
         DeleteRemovedEvents = true,
         DryRun = false,
         StateDatabasePath = "state/sync-state.db",
-        ImportedTitlePrefix = "(G) "
+        ImportedTitlePrefix = "(G)"
       },
       Logging = new
       {
@@ -110,7 +110,7 @@ public sealed class ConfigInitializer
     }
     else
     {
-      mutable.Google.Calendars.Add(new GoogleCalendarFileModel(mutable.Google.CalendarId ?? "primary", icsUrl, "(G) ", true));
+      mutable.Google.Calendars.Add(new GoogleCalendarFileModel(mutable.Google.CalendarId ?? "primary", icsUrl, "(G)", true));
     }
 
     var options = new JsonSerializerOptions { WriteIndented = true };

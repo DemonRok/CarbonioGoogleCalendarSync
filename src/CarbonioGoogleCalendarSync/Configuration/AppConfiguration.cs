@@ -151,7 +151,7 @@ public sealed record SyncConfiguration
   public bool DeleteRemovedEvents { get; init; } = true;
   public bool DryRun { get; init; }
   public string StateDatabasePath { get; init; } = "state/sync-state.db";
-  public string ImportedTitlePrefix { get; init; } = "(G) ";
+  public string ImportedTitlePrefix { get; init; } = "(G)";
 }
 
 public sealed record LoggingConfiguration

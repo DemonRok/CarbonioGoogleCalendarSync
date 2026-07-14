@@ -13,13 +13,13 @@
       {
         "Id": "primary",
         "IcsUrl": "https://calendar.google.com/calendar/ical/your-calendar-id/private-token/basic.ics",
-        "TitlePrefix": "(G) ",
+        "TitlePrefix": "(G)",
         "UseLegacyUid": true
       },
       {
         "Id": "work",
         "IcsUrl": "https://calendar.google.com/calendar/ical/another-calendar-id/private-token/basic.ics",
-        "TitlePrefix": "(W) ",
+        "TitlePrefix": "(W)",
         "UseLegacyUid": false
       }
     ]
@@ -31,7 +31,7 @@
     "DeleteRemovedEvents": true,
     "DryRun": false,
     "StateDatabasePath": "state/sync-state.db",
-    "ImportedTitlePrefix": "(G) "
+    "ImportedTitlePrefix": "(G)"
   },
   "Logging": {
     "Directory": "logs",

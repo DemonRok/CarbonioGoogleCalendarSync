@@ -69,7 +69,7 @@ public sealed class GoogleToCalDavConverterTests
     var source = new GoogleCalendarConfiguration(
       "work",
       "https://calendar.google.com/calendar/ical/work/private-token/basic.ics",
-      "(W) ");
+      "(W)");
 
     var ics = converter.ConvertToICalendar(source, googleEvent);
 
@@ -86,12 +86,12 @@ public sealed class GoogleToCalDavConverterTests
     var legacySource = new GoogleCalendarConfiguration(
       "primary",
       "https://calendar.google.com/calendar/ical/primary/private-token/basic.ics",
-      "(G) ",
+      "(G)",
       UseLegacyUid: true);
     var additionalSource = new GoogleCalendarConfiguration(
       "work",
       "https://calendar.google.com/calendar/ical/work/private-token/basic.ics",
-      "(W) ");
+      "(W)");
 
     Assert.Equal("same-id@google-carbonio-sync", converter.GetUid(legacySource, googleEvent));
     Assert.NotEqual(

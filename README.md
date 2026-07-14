@@ -10,7 +10,7 @@ The project synchronizes Google Calendar to a Carbonio calendar using:
 - Carbonio CalDAV over HTTPS as the destination.
 - Local SQLite state to avoid duplicates and manage updates/deletes.
 - Windows DPAPI to store the Carbonio password for the current Windows user.
-- Visible marker in imported event titles, default `(G) `.
+- Visible marker in imported event titles, default `(G)`.
 - Application logs with machine name and Windows execution user.
 - Custom application icon `CarbonioGoogleCalendarSync.ico` embedded in the executables and GUI window.
 
@@ -110,13 +110,13 @@ For multiple Google calendars, add one row per calendar in the GUI or edit `Goog
       {
         "Id": "primary",
         "IcsUrl": "https://calendar.google.com/calendar/ical/your-calendar-id/private-token/basic.ics",
-        "TitlePrefix": "(G) ",
+        "TitlePrefix": "(G)",
         "UseLegacyUid": true
       },
       {
         "Id": "work",
         "IcsUrl": "https://calendar.google.com/calendar/ical/another-calendar-id/private-token/basic.ics",
-        "TitlePrefix": "(W) ",
+        "TitlePrefix": "(W)",
         "UseLegacyUid": false
       }
     ]
@@ -124,7 +124,11 @@ For multiple Google calendars, add one row per calendar in the GUI or edit `Goog
 }
 ```
 
-Each calendar needs a stable `Id`, its own private ICS URL and, optionally, a title prefix. `UseLegacyUid` should remain `true` only for the first calendar when migrating from a previous single-calendar setup, so already imported events keep the same CalDAV UID. Additional calendars should use `false` to avoid UID collisions when different calendars contain events with the same Google event id.
+Each calendar needs a stable `Id`, its own private ICS URL and, optionally, a title prefix. The `Id` is a local synchronizer name, not a Google value: choose something short and unique, such as `primary`, `work` or `family`, and do not rename it later unless you want the state to be treated as a different source calendar.
+
+`TitlePrefix` should contain only the marker, for example `(G)`. The synchronizer automatically adds the space before the event title, producing `(G) Event title`.
+
+`UseLegacyUid` is only for migration from an older single-calendar setup. Keep it enabled for the calendar that was already synchronized before version 1.0.1, so existing Carbonio events keep the same UID and are updated instead of duplicated. Leave it disabled for new additional calendars.
 
 The GUI edits the complete configured Google calendar list. Saved private ICS URLs are shown as `********`; edit the cell only when you want to replace that URL.
 
@@ -212,7 +216,7 @@ From the GUI you can:
 - add and remove Google calendars from the configuration grid;
 - save/use the ICS URL internally with the correct escaping when needed;
 - hide the saved Google ICS URL by showing `********`, because it is a private URL;
-- configure the title prefix for imported events, default `(G) `;
+- configure the title prefix for imported events, default `(G)`;
 - import or export the configuration file;
 - save the Carbonio CalDAV password in DPAPI;
 - remove the saved CalDAV password;
