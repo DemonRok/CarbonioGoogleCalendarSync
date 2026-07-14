@@ -1,4 +1,5 @@
 using CarbonioGoogleCalendarSync.Configuration;
+using CarbonioGoogleCalendarSync.Security;
 using Ical.Net;
 using Ical.Net.CalendarComponents;
 using Ical.Net.DataTypes;
@@ -6,17 +7,23 @@ using Microsoft.Extensions.Logging;
 
 namespace CarbonioGoogleCalendarSync.Google;
 
-public sealed class GoogleCalendarClient(HttpClient httpClient, AppConfiguration configuration, ILogger<GoogleCalendarClient> logger)
+public sealed class GoogleCalendarClient(
+  HttpClient httpClient,
+  AppConfiguration configuration,
+  ICredentialStore credentialStore,
+  ILogger<GoogleCalendarClient> logger)
 {
   public async Task<IReadOnlyList<SourcedGoogleCalendarEvent>> GetEventsAsync(CancellationToken cancellationToken)
   {
     var results = new List<SourcedGoogleCalendarEvent>();
     foreach (var calendar in configuration.Google.GetCalendars())
     {
-      if (!Uri.TryCreate(calendar.IcsUrl, UriKind.Absolute, out var icsUri) ||
+      var icsUrl = await credentialStore.GetGoogleIcsUrlAsync(configuration.Carbonio.Username, calendar.Id, cancellationToken)
+        ?? calendar.IcsUrl;
+      if (!Uri.TryCreate(icsUrl, UriKind.Absolute, out var icsUri) ||
           icsUri.Scheme != Uri.UriSchemeHttps)
       {
-        throw new ConfigurationException($"Google:Calendars:{calendar.Id}:IcsUrl deve essere un URL HTTPS assoluto.");
+        throw new ConfigurationException($"URL ICS Google mancante o non valido per il calendario {calendar.Id}. Salvalo dalla GUI o con config set-google-ics.");
       }
 
       var ics = await httpClient.GetStringAsync(icsUri, cancellationToken);

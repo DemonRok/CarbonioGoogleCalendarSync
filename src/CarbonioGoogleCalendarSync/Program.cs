@@ -97,6 +97,12 @@ public static class Program
     }
 
     var command = args[0].ToLowerInvariant();
+    if (!(command == "config" &&
+          args.Skip(1).FirstOrDefault()?.Equals("init", StringComparison.OrdinalIgnoreCase) == true))
+    {
+      await services.GetRequiredService<ConfigInitializer>().NormalizeExistingConfigAsync(cancellationToken);
+    }
+
     return command switch
     {
       "carbonio-test" => await services.GetRequiredService<CalDavTestService>()

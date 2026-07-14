@@ -75,7 +75,7 @@ The real test writes to the configured Carbonio calendar, so do not run it witho
 
 Google reading uses the calendar private ICS/iCal URL. Google Cloud, OAuth and `google-client.json` are not required.
 
-The ICS URL is a secret: store it only in the user `config.json` under `%AppData%`, which is not versioned.
+The ICS URL is a secret: it is stored in the Windows user protected store with DPAPI, not in `config.json`.
 
 Steps:
 
@@ -83,7 +83,7 @@ Steps:
 2. Open the settings of the calendar to synchronize.
 3. Look for "Secret address in iCal format".
 4. Copy the URL.
-5. Save it in the configuration with:
+5. Save it in the protected store with:
 
 ```powershell
 dotnet run --project .\src\CarbonioGoogleCalendarSync -- config set-google-ics
@@ -99,36 +99,32 @@ The dry-run reads events in the configured window, converts them to iCalendar an
 
 ### Multiple Google Calendars
 
-For multiple Google calendars, add one row per calendar in the GUI or edit `Google:Calendars` in the user configuration:
+For multiple Google calendars, add one row per calendar in the GUI or edit `Google:Calendars` in the user configuration. The private ICS URLs are saved separately in the protected store:
 
 ```json
 {
   "Google": {
-    "CalendarId": "primary",
-    "IcsUrl": "https://calendar.google.com/calendar/ical/your-calendar-id/private-token/basic.ics",
     "Calendars": [
       {
         "Id": "primary",
-        "IcsUrl": "https://calendar.google.com/calendar/ical/your-calendar-id/private-token/basic.ics",
         "TitlePrefix": "(G)",
-        "UseLegacyUid": true
+        "CarbonioCalendarName": "Google"
       },
       {
         "Id": "work",
-        "IcsUrl": "https://calendar.google.com/calendar/ical/another-calendar-id/private-token/basic.ics",
         "TitlePrefix": "(W)",
-        "UseLegacyUid": false
+        "CarbonioCalendarName": "Work"
       }
     ]
   }
 }
 ```
 
-Each calendar needs a stable `Id`, its own private ICS URL and, optionally, a title prefix. The `Id` is a local synchronizer name, not a Google value: choose something short and unique, such as `primary`, `work` or `family`, and do not rename it later unless you want the state to be treated as a different source calendar.
+Each calendar needs a stable `Id`, its own private ICS URL saved through the GUI, and optionally a title prefix. The `Id` is a local synchronizer name, not a Google value: choose something short and unique, such as `primary`, `work` or `family`, and do not rename it later unless you want the state to be treated as a different source calendar.
 
 `TitlePrefix` should contain only the marker, for example `(G)`. The synchronizer automatically adds the space before the event title, producing `(G) Event title`.
 
-`UseLegacyUid` is only for migration from an older single-calendar setup. Keep it enabled for the calendar that was already synchronized before version 1.0.1, so existing Carbonio events keep the same UID and are updated instead of duplicated. Leave it disabled for new additional calendars.
+`CarbonioCalendarName` is the destination Carbonio calendar for that Google source. The CalDAV URL is generated automatically from Carbonio Base URL, Carbonio User and the selected calendar name.
 
 The GUI edits the complete configured Google calendar list. Saved private ICS URLs are shown as `********`; edit the cell only when you want to replace that URL.
 
@@ -208,12 +204,11 @@ From the GUI you can:
 
 - configure Carbonio without writing JSON by hand;
 - enter the Carbonio user with the normal `@`;
-- automatically generate the CalDAV URL while showing the normal `@` in the GUI;
-- lock the Carbonio calendar to `Google` when **Allow non-dedicated calendar** is not selected;
-- save/use the CalDAV URL internally with the correct `%40` escaping;
-- explicitly allow a non-dedicated Carbonio calendar, for example the main calendar;
+- automatically generate CalDAV URLs internally from Carbonio Base URL, Carbonio User and each row's Carbonio target;
+- save/use generated CalDAV URLs internally with the correct `%40` escaping;
 - configure one or more Google ICS URLs while showing the normal `@` in the GUI;
 - add and remove Google calendars from the configuration grid;
+- choose the destination Carbonio calendar for each Google source calendar;
 - save/use the ICS URL internally with the correct escaping when needed;
 - hide the saved Google ICS URL by showing `********`, because it is a private URL;
 - configure the title prefix for imported events, default `(G)`;

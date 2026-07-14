@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace CarbonioGoogleCalendarSync.Gui;
 
@@ -10,9 +11,6 @@ public sealed class MainForm : Form
 {
   private readonly TextBox _carbonioBaseUrl = new();
   private readonly TextBox _carbonioUsername = new();
-  private readonly TextBox _carbonioCalendarName = new();
-  private readonly TextBox _carbonioCalendarUrl = new();
-  private readonly CheckBox _allowNonGoogleCalendar = new();
   private readonly DataGridView _googleCalendars = new();
   private readonly NumericUpDown _pastDays = new();
   private readonly NumericUpDown _futureDays = new();
@@ -31,7 +29,6 @@ public sealed class MainForm : Form
   private readonly Label _taskStatusDot = new();
   private readonly Label _taskStatusText = new();
   private bool _passwordPlaceholderActive;
-  private bool _loadingConfig;
 
   private static string AppDataDirectory => Path.Combine(
     Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
@@ -59,10 +56,6 @@ public sealed class MainForm : Form
     Load += (_, _) => LoadConfig();
     Shown += async (_, _) => await RefreshTaskStatusAsync();
     _password.Enter += (_, _) => ClearPasswordPlaceholder();
-    _carbonioBaseUrl.TextChanged += (_, _) => RefreshCalDavUrl();
-    _carbonioUsername.TextChanged += (_, _) => RefreshCalDavUrl();
-    _carbonioCalendarName.TextChanged += (_, _) => RefreshCalDavUrl();
-    _allowNonGoogleCalendar.CheckedChanged += (_, _) => ApplyCalendarMode();
   }
 
   private TabPage BuildConfigurationTab()
@@ -92,9 +85,6 @@ public sealed class MainForm : Form
     AddTextRow(form, "Carbonio Base URL", _carbonioBaseUrl);
     AddTextRow(form, "Carbonio User", _carbonioUsername);
     AddPasswordRow(form, _password);
-    AddCheckRow(form, "Allow non-dedicated calendar", _allowNonGoogleCalendar);
-    AddTextRow(form, "Carbonio Calendar", _carbonioCalendarName);
-    AddTextRow(form, "Carbonio CalDAV URL", _carbonioCalendarUrl);
     AddControlRow(form, "Google Calendars", BuildGoogleCalendarsPanel(), 132);
     AddNumberRow(form, "Past days", _pastDays, 0, 3650);
     AddNumberRow(form, "Future days", _futureDays, 1, 3650);
@@ -144,7 +134,7 @@ public sealed class MainForm : Form
     root.RowStyles.Add(new RowStyle(SizeType.Absolute, 190));
     root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
-    var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "1.0.0";
+    var version = GetDisplayVersion();
     var title = new Label
     {
       Dock = DockStyle.Fill,
@@ -382,7 +372,14 @@ public sealed class MainForm : Form
     {
       Name = "IcsUrl",
       HeaderText = "Private ICS URL",
-      FillWeight = 56
+      FillWeight = 38
+    });
+    _googleCalendars.Columns.Add(new DataGridViewTextBoxColumn
+    {
+      Name = "CarbonioCalendarName",
+      HeaderText = "Carbonio target",
+      ToolTipText = "Destination Carbonio calendar name. The CalDAV URL is built automatically.",
+      FillWeight = 18
     });
     _googleCalendars.Columns.Add(new DataGridViewTextBoxColumn
     {
@@ -390,13 +387,6 @@ public sealed class MainForm : Form
       HeaderText = "Title prefix",
       ToolTipText = "Write only the marker, for example (G). The space before the event title is added automatically.",
       FillWeight = 12
-    });
-    _googleCalendars.Columns.Add(new DataGridViewCheckBoxColumn
-    {
-      Name = "UseLegacyUid",
-      HeaderText = "Already synced before",
-      ToolTipText = "Use only for the first calendar when migrating events already imported by an older version.",
-      FillWeight = 14
     });
     _googleCalendars.CellBeginEdit += (_, e) =>
     {
@@ -413,7 +403,7 @@ public sealed class MainForm : Form
       }
     };
 
-    var addButton = MakeButton("Add Calendar", (_, _) => AddGoogleCalendarRow("calendar", "", "(G)", false));
+    var addButton = MakeButton("Add Calendar", (_, _) => AddGoogleCalendarRow("calendar", "", "", "(G)"));
     addButton.Width = 140;
     var removeButton = MakeButton("Remove Calendar", (_, _) => RemoveSelectedGoogleCalendar());
     removeButton.Width = 150;
@@ -445,12 +435,10 @@ public sealed class MainForm : Form
   {
     try
     {
-      _loadingConfig = true;
       MigrateLegacyConfigIfNeeded();
       if (!File.Exists(ConfigPath))
       {
         LoadDefaults();
-        ApplyCalendarMode();
         if (_configurationTab is not null)
         {
           _tabs.SelectedTab = _configurationTab;
@@ -466,17 +454,14 @@ public sealed class MainForm : Form
       }
 
       var model = JsonSerializer.Deserialize<ConfigFileModel>(File.ReadAllText(ConfigPath), JsonOptions()) ?? new ConfigFileModel();
+      MigrateGoogleIcsUrlsToDpapi(model);
       _carbonioBaseUrl.Text = model.Carbonio?.BaseUrl ?? "";
       _carbonioUsername.Text = model.Carbonio?.Username ?? "";
-      _carbonioCalendarName.Text = model.Carbonio?.CalendarName ?? "Google";
-      _carbonioCalendarUrl.Text = ToDisplayCalDavUrl(model.Carbonio?.CalendarUrl ?? "");
-      _allowNonGoogleCalendar.Checked = model.Carbonio?.AllowNonGoogleCalendar ?? false;
       LoadGoogleCalendars(model);
       _pastDays.Value = Clamp(model.Sync?.PastDays ?? 30, _pastDays.Minimum, _pastDays.Maximum);
       _futureDays.Value = Clamp(model.Sync?.FutureDays ?? 365, _futureDays.Minimum, _futureDays.Maximum);
       _deleteRemoved.Checked = model.Sync?.DeleteRemovedEvents ?? true;
       SetPasswordPlaceholderIfCredentialFileExists();
-      ApplyCalendarMode();
       AppendOutput("Configuration loaded.");
     }
     catch (Exception ex)
@@ -485,8 +470,6 @@ public sealed class MainForm : Form
     }
     finally
     {
-      _loadingConfig = false;
-      RefreshCalDavUrl();
     }
   }
 
@@ -494,9 +477,6 @@ public sealed class MainForm : Form
   {
     _carbonioBaseUrl.Text = "https://webmail.example.local";
     _carbonioUsername.Text = "user.name@example.local";
-    _carbonioCalendarName.Text = "Google";
-    _allowNonGoogleCalendar.Checked = false;
-    _carbonioCalendarUrl.Text = BuildCalDavUrl(_carbonioBaseUrl.Text, _carbonioUsername.Text, _carbonioCalendarName.Text);
     LoadGoogleCalendars(new ConfigFileModel
     {
       Google = new GoogleFileModel
@@ -506,10 +486,10 @@ public sealed class MainForm : Form
         Calendars =
         [
           new GoogleCalendarFileModel(
-            "primary",
-            "https://calendar.google.com/calendar/ical/your-calendar-id/private-token/basic.ics",
-            "(G)",
-            true)
+            Id: "primary",
+            IcsUrl: "https://calendar.google.com/calendar/ical/your-calendar-id/private-token/basic.ics",
+            TitlePrefix: "(G)",
+            CarbonioCalendarName: "Google")
         ]
       },
       Sync = new SyncFileModel { ImportedTitlePrefix = "(G)" }
@@ -533,10 +513,10 @@ public sealed class MainForm : Form
       calendars =
       [
         new GoogleCalendarFileModel(
-          model.Google.CalendarId ?? "primary",
-          model.Google.IcsUrl,
-          model.Sync?.ImportedTitlePrefix ?? "(G)",
-          true)
+          Id: model.Google.CalendarId ?? "primary",
+          IcsUrl: model.Google.IcsUrl,
+          TitlePrefix: model.Sync?.ImportedTitlePrefix ?? "(G)",
+          CarbonioCalendarName: "Google")
       ];
     }
 
@@ -545,37 +525,39 @@ public sealed class MainForm : Form
       calendars =
       [
         new GoogleCalendarFileModel(
-          "primary",
-          "https://calendar.google.com/calendar/ical/your-calendar-id/private-token/basic.ics",
-          "(G)",
-          true)
+          Id: "primary",
+          IcsUrl: "https://calendar.google.com/calendar/ical/your-calendar-id/private-token/basic.ics",
+          TitlePrefix: "(G)",
+          CarbonioCalendarName: "Google")
       ];
     }
 
     foreach (var calendar in calendars)
     {
+      var storedIcsUrlExists = !string.IsNullOrWhiteSpace(calendar.IcsUrl) ||
+        (!string.IsNullOrWhiteSpace(model.Carbonio?.Username) && GuiCredentialStore.GoogleIcsExists(model.Carbonio.Username, calendar.Id));
       AddGoogleCalendarRow(
         calendar.Id,
-        calendar.IcsUrl,
+        calendar.IcsUrl ?? "",
+        calendar.CarbonioCalendarName ?? "Google",
         NormalizeTitlePrefixForConfig(calendar.TitlePrefix ?? model.Sync?.ImportedTitlePrefix ?? "(G)"),
-        calendar.UseLegacyUid,
-        maskIcsUrl: !string.IsNullOrWhiteSpace(calendar.IcsUrl));
+        maskIcsUrl: storedIcsUrlExists);
     }
   }
 
   private void AddGoogleCalendarRow(
     string id,
     string icsUrl,
+    string carbonioCalendarName,
     string titlePrefix,
-    bool useLegacyUid,
     bool maskIcsUrl = false)
   {
     var rowIndex = _googleCalendars.Rows.Add(
       id,
       maskIcsUrl ? "********" : ToDisplayUrl(icsUrl),
-      titlePrefix,
-      useLegacyUid);
-    _googleCalendars.Rows[rowIndex].Tag = maskIcsUrl ? icsUrl : null;
+      carbonioCalendarName,
+      titlePrefix);
+    _googleCalendars.Rows[rowIndex].Tag = new GoogleCalendarRowMetadata(maskIcsUrl ? icsUrl : null);
   }
 
   private void RemoveSelectedGoogleCalendar()
@@ -606,19 +588,19 @@ public sealed class MainForm : Form
 
       var id = Convert.ToString(row.Cells["Id"].Value)?.Trim() ?? "";
       var displayedIcsUrl = Convert.ToString(row.Cells["IcsUrl"].Value)?.Trim() ?? "";
-      var storedIcsUrl = row.Tag as string;
-      var icsUrl = string.Equals(displayedIcsUrl, "********", StringComparison.Ordinal) && !string.IsNullOrWhiteSpace(storedIcsUrl)
-        ? storedIcsUrl
+      var metadata = row.Tag as GoogleCalendarRowMetadata;
+      var icsUrl = string.Equals(displayedIcsUrl, "********", StringComparison.Ordinal) && !string.IsNullOrWhiteSpace(metadata?.IcsUrl)
+        ? metadata.IcsUrl
         : NormalizeUrl(displayedIcsUrl);
+      var carbonioCalendarName = Convert.ToString(row.Cells["CarbonioCalendarName"].Value)?.Trim() ?? "";
       var titlePrefix = NormalizeTitlePrefixForConfig(Convert.ToString(row.Cells["TitlePrefix"].Value));
-      var useLegacyUid = Convert.ToBoolean(row.Cells["UseLegacyUid"].Value ?? false);
 
       if (string.IsNullOrWhiteSpace(id) && string.IsNullOrWhiteSpace(icsUrl))
       {
         continue;
       }
 
-      calendars.Add(new GoogleCalendarFileModel(id, icsUrl, titlePrefix, useLegacyUid));
+      calendars.Add(new GoogleCalendarFileModel(id, null, titlePrefix, carbonioCalendarName));
     }
 
     return calendars;
@@ -641,13 +623,13 @@ public sealed class MainForm : Form
 
       model.Carbonio.BaseUrl = _carbonioBaseUrl.Text.Trim();
       model.Carbonio.Username = _carbonioUsername.Text.Trim();
-      model.Carbonio.CalendarName = _carbonioCalendarName.Text.Trim();
-      model.Carbonio.CalendarUrl = NormalizeCalDavUrl(_carbonioCalendarUrl.Text.Trim());
-      model.Carbonio.AllowNonGoogleCalendar = _allowNonGoogleCalendar.Checked;
+      model.Carbonio.CalendarName = null;
+      model.Carbonio.CalendarUrl = null;
+      SaveGoogleIcsUrlsFromGrid(model.Carbonio.Username);
       model.Google.Calendars = ReadGoogleCalendars();
       var firstCalendar = model.Google.Calendars.FirstOrDefault();
-      model.Google.CalendarId = firstCalendar?.Id ?? "primary";
-      model.Google.IcsUrl = firstCalendar?.IcsUrl ?? "";
+      model.Google.CalendarId = null;
+      model.Google.IcsUrl = null;
       model.Sync.Direction = "GoogleToCarbonio";
       model.Sync.PastDays = (int)_pastDays.Value;
       model.Sync.FutureDays = (int)_futureDays.Value;
@@ -674,8 +656,8 @@ public sealed class MainForm : Form
     using var dialog = new OpenFileDialog
     {
       Title = "Import configuration",
-      Filter = "JSON configuration (*.json)|*.json|All files (*.*)|*.*",
-      FileName = "config.json"
+      Filter = "Encrypted sync export (*.cgsync)|*.cgsync|JSON configuration (*.json)|*.json|All files (*.*)|*.*",
+      FileName = "CarbonioGoogleCalendarSync.cgsync"
     };
 
     if (dialog.ShowDialog(this) != DialogResult.OK)
@@ -686,9 +668,27 @@ public sealed class MainForm : Form
     try
     {
       var json = File.ReadAllText(dialog.FileName);
-      JsonSerializer.Deserialize<ConfigFileModel>(json, JsonOptions());
-      Directory.CreateDirectory(AppDataDirectory);
-      File.Copy(dialog.FileName, ConfigPath, overwrite: true);
+      var export = JsonSerializer.Deserialize<EncryptedExportFile>(json, JsonOptions());
+      if (export?.Format == "CarbonioGoogleCalendarSync.EncryptedExport.v1")
+      {
+        var passphrase = PromptSecret("Import encrypted configuration", "Export password:");
+        if (passphrase is null)
+        {
+          return;
+        }
+
+        var payload = DecryptExport(export, passphrase);
+        Directory.CreateDirectory(AppDataDirectory);
+        File.WriteAllText(ConfigPath, JsonSerializer.Serialize(payload.Config, JsonOptions()));
+        SaveImportedSecrets(payload);
+      }
+      else
+      {
+        JsonSerializer.Deserialize<ConfigFileModel>(json, JsonOptions());
+        Directory.CreateDirectory(AppDataDirectory);
+        File.Copy(dialog.FileName, ConfigPath, overwrite: true);
+      }
+
       LoadConfig();
       AppendOutput($"Configuration imported from {dialog.FileName}.");
     }
@@ -709,8 +709,8 @@ public sealed class MainForm : Form
     using var dialog = new SaveFileDialog
     {
       Title = "Export configuration",
-      Filter = "JSON configuration (*.json)|*.json|All files (*.*)|*.*",
-      FileName = "config.json"
+      Filter = "Encrypted sync export (*.cgsync)|*.cgsync|All files (*.*)|*.*",
+      FileName = "CarbonioGoogleCalendarSync.cgsync"
     };
 
     if (dialog.ShowDialog(this) != DialogResult.OK)
@@ -720,8 +720,17 @@ public sealed class MainForm : Form
 
     try
     {
-      File.Copy(ConfigPath, dialog.FileName, overwrite: true);
-      AppendOutput($"Configuration exported to {dialog.FileName}.");
+      SaveConfig();
+      var passphrase = PromptSecret("Export encrypted configuration", "Export password:");
+      if (passphrase is null)
+      {
+        return;
+      }
+
+      var payload = BuildExportPayload();
+      var encrypted = EncryptExport(payload, passphrase);
+      File.WriteAllText(dialog.FileName, JsonSerializer.Serialize(encrypted, JsonOptions()));
+      AppendOutput($"Encrypted configuration exported to {dialog.FileName}.");
     }
     catch (Exception ex)
     {
@@ -882,6 +891,242 @@ public sealed class MainForm : Form
     catch (Exception ex)
     {
       AppendOutput($"AppData open error: {ex.Message}");
+    }
+  }
+
+  private void SaveGoogleIcsUrlsFromGrid(string username)
+  {
+    if (string.IsNullOrWhiteSpace(username))
+    {
+      return;
+    }
+
+    var store = new GuiCredentialStore();
+    foreach (DataGridViewRow row in _googleCalendars.Rows)
+    {
+      if (row.IsNewRow)
+      {
+        continue;
+      }
+
+      var id = Convert.ToString(row.Cells["Id"].Value)?.Trim() ?? "";
+      var displayedIcsUrl = Convert.ToString(row.Cells["IcsUrl"].Value)?.Trim() ?? "";
+      if (string.IsNullOrWhiteSpace(id) ||
+          string.IsNullOrWhiteSpace(displayedIcsUrl) ||
+          string.Equals(displayedIcsUrl, "********", StringComparison.Ordinal))
+      {
+        continue;
+      }
+
+      store.SaveGoogleIcsUrl(username, id, NormalizeUrl(displayedIcsUrl));
+      row.Cells["IcsUrl"].Value = "********";
+      row.Tag = new GoogleCalendarRowMetadata(NormalizeUrl(displayedIcsUrl));
+    }
+  }
+
+  private ExportPayload BuildExportPayload()
+  {
+    var config = JsonSerializer.Deserialize<ConfigFileModel>(File.ReadAllText(ConfigPath), JsonOptions()) ?? new ConfigFileModel();
+    var store = new GuiCredentialStore();
+    var googleSecrets = new List<GoogleIcsSecret>();
+    var username = config.Carbonio?.Username ?? "";
+    foreach (var calendar in config.Google?.Calendars ?? [])
+    {
+      if (string.IsNullOrWhiteSpace(username))
+      {
+        continue;
+      }
+
+      var icsUrl = store.GetGoogleIcsUrl(username, calendar.Id);
+      if (!string.IsNullOrWhiteSpace(icsUrl))
+      {
+        googleSecrets.Add(new GoogleIcsSecret(calendar.Id, icsUrl));
+      }
+    }
+
+    var carbonioPassword = string.IsNullOrWhiteSpace(username)
+      ? null
+      : store.GetCarbonioPassword(username);
+    return new ExportPayload(config, googleSecrets, carbonioPassword);
+  }
+
+  private void SaveImportedSecrets(ExportPayload payload)
+  {
+    var username = payload.Config.Carbonio?.Username;
+    if (string.IsNullOrWhiteSpace(username))
+    {
+      return;
+    }
+
+    var store = new GuiCredentialStore();
+    foreach (var secret in payload.GoogleIcsUrls)
+    {
+      store.SaveGoogleIcsUrl(username, secret.CalendarId, secret.IcsUrl);
+    }
+
+    if (!string.IsNullOrWhiteSpace(payload.CarbonioPassword))
+    {
+      store.SaveCarbonioPassword(username, payload.CarbonioPassword);
+    }
+  }
+
+  private static EncryptedExportFile EncryptExport(ExportPayload payload, string passphrase)
+  {
+    var salt = RandomNumberGenerator.GetBytes(16);
+    var nonce = RandomNumberGenerator.GetBytes(12);
+    using var kdf = new Rfc2898DeriveBytes(passphrase, salt, 210_000, HashAlgorithmName.SHA256);
+    var key = kdf.GetBytes(32);
+    var plainBytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(payload, JsonOptions()));
+    var cipherBytes = new byte[plainBytes.Length];
+    var tag = new byte[16];
+    using var aes = new AesGcm(key, tag.Length);
+    aes.Encrypt(nonce, plainBytes, cipherBytes, tag);
+
+    return new EncryptedExportFile(
+      "CarbonioGoogleCalendarSync.EncryptedExport.v1",
+      "AES-256-GCM",
+      210_000,
+      Convert.ToBase64String(salt),
+      Convert.ToBase64String(nonce),
+      Convert.ToBase64String(tag),
+      Convert.ToBase64String(cipherBytes));
+  }
+
+  private static ExportPayload DecryptExport(EncryptedExportFile export, string passphrase)
+  {
+    var salt = Convert.FromBase64String(export.Salt);
+    var nonce = Convert.FromBase64String(export.Nonce);
+    var tag = Convert.FromBase64String(export.Tag);
+    var cipherBytes = Convert.FromBase64String(export.CipherText);
+    using var kdf = new Rfc2898DeriveBytes(passphrase, salt, export.Iterations, HashAlgorithmName.SHA256);
+    var key = kdf.GetBytes(32);
+    var plainBytes = new byte[cipherBytes.Length];
+    using var aes = new AesGcm(key, tag.Length);
+    aes.Decrypt(nonce, cipherBytes, tag, plainBytes);
+    return JsonSerializer.Deserialize<ExportPayload>(Encoding.UTF8.GetString(plainBytes), JsonOptions()) ??
+      throw new InvalidOperationException("Encrypted export payload is invalid.");
+  }
+
+  private static string? PromptSecret(string title, string label)
+  {
+    using var form = new Form
+    {
+      Text = title,
+      StartPosition = FormStartPosition.CenterParent,
+      FormBorderStyle = FormBorderStyle.FixedDialog,
+      MinimizeBox = false,
+      MaximizeBox = false,
+      ClientSize = new Size(420, 116)
+    };
+    var textLabel = new Label
+    {
+      Text = label,
+      Left = 12,
+      Top = 16,
+      Width = 390
+    };
+    var input = new TextBox
+    {
+      Left = 12,
+      Top = 40,
+      Width = 390,
+      UseSystemPasswordChar = true
+    };
+    var ok = new Button
+    {
+      Text = "OK",
+      DialogResult = DialogResult.OK,
+      Left = 246,
+      Top = 76,
+      Width = 75
+    };
+    var cancel = new Button
+    {
+      Text = "Cancel",
+      DialogResult = DialogResult.Cancel,
+      Left = 327,
+      Top = 76,
+      Width = 75
+    };
+    form.Controls.Add(textLabel);
+    form.Controls.Add(input);
+    form.Controls.Add(ok);
+    form.Controls.Add(cancel);
+    form.AcceptButton = ok;
+    form.CancelButton = cancel;
+    return form.ShowDialog() == DialogResult.OK ? input.Text : null;
+  }
+
+  private void MigrateGoogleIcsUrlsToDpapi(ConfigFileModel model)
+  {
+    if (model.Google is null ||
+        string.IsNullOrWhiteSpace(model.Carbonio?.Username))
+    {
+      return;
+    }
+
+    var username = model.Carbonio.Username;
+    var changed = false;
+    var calendars = model.Google.Calendars;
+    if (calendars.Count == 0 && !string.IsNullOrWhiteSpace(model.Google.IcsUrl))
+    {
+      calendars.Add(new GoogleCalendarFileModel(
+        model.Google.CalendarId ?? "primary",
+        model.Google.IcsUrl,
+        model.Sync?.ImportedTitlePrefix ?? "(G)",
+        model.Carbonio?.CalendarName));
+      changed = true;
+    }
+
+    var legacyCalendarName = model.Carbonio?.CalendarName;
+    if (calendars.Count > 0 && !string.IsNullOrWhiteSpace(legacyCalendarName))
+    {
+      for (var index = 0; index < calendars.Count; index++)
+      {
+        var calendar = calendars[index];
+        if (string.IsNullOrWhiteSpace(calendar.CarbonioCalendarName))
+        {
+          calendars[index] = calendar with { CarbonioCalendarName = legacyCalendarName };
+          changed = true;
+        }
+      }
+    }
+
+    var store = new GuiCredentialStore();
+    for (var index = 0; index < calendars.Count; index++)
+    {
+      var calendar = calendars[index];
+      if (string.IsNullOrWhiteSpace(calendar.IcsUrl))
+      {
+        continue;
+      }
+
+      store.SaveGoogleIcsUrl(username, calendar.Id, calendar.IcsUrl!);
+      calendars[index] = calendar with { IcsUrl = null };
+      changed = true;
+    }
+
+    if (!string.IsNullOrWhiteSpace(model.Google.CalendarId) ||
+        !string.IsNullOrWhiteSpace(model.Google.IcsUrl))
+    {
+      model.Google.CalendarId = null;
+      model.Google.IcsUrl = null;
+      changed = true;
+    }
+
+    if (model.Carbonio is not null &&
+        (!string.IsNullOrWhiteSpace(model.Carbonio.CalendarName) ||
+        !string.IsNullOrWhiteSpace(model.Carbonio.CalendarUrl)))
+    {
+      model.Carbonio.CalendarName = null;
+      model.Carbonio.CalendarUrl = null;
+      changed = true;
+    }
+
+    if (changed)
+    {
+      File.WriteAllText(ConfigPath, JsonSerializer.Serialize(model, JsonOptions()));
+      AppendOutput("Google ICS URLs migrated to the Windows user protected store.");
     }
   }
 
@@ -1181,6 +1426,23 @@ public sealed class MainForm : Form
     }, 1, row);
   }
 
+  private static string GetDisplayVersion()
+  {
+    var assembly = Assembly.GetExecutingAssembly();
+    var informationalVersion = assembly
+      .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
+      .InformationalVersion;
+    if (!string.IsNullOrWhiteSpace(informationalVersion))
+    {
+      var metadataSeparator = informationalVersion.IndexOf('+', StringComparison.Ordinal);
+      return metadataSeparator > 0
+        ? informationalVersion[..metadataSeparator]
+        : informationalVersion;
+    }
+
+    return assembly.GetName().Version?.ToString(3) ?? "1.0.0";
+  }
+
   private void SetPasswordPlaceholderIfCredentialFileExists()
   {
     if (string.IsNullOrWhiteSpace(_carbonioUsername.Text))
@@ -1252,50 +1514,6 @@ public sealed class MainForm : Form
     return builder.Uri.AbsoluteUri;
   }
 
-  private static string BuildCalDavUrl(string baseUrl, string username, string calendarName)
-  {
-    if (string.IsNullOrWhiteSpace(baseUrl) ||
-        string.IsNullOrWhiteSpace(username) ||
-        string.IsNullOrWhiteSpace(calendarName))
-    {
-      return "";
-    }
-
-    var cleanBaseUrl = baseUrl.TrimEnd('/');
-    return $"{cleanBaseUrl}/dav/{username}/{Uri.EscapeDataString(calendarName)}/";
-  }
-
-  private void ApplyCalendarMode()
-  {
-    var allowNonDedicated = _allowNonGoogleCalendar.Checked;
-    _carbonioCalendarName.ReadOnly = !allowNonDedicated;
-    if (!allowNonDedicated)
-    {
-      _carbonioCalendarName.Text = "Google";
-    }
-
-    _carbonioCalendarUrl.ReadOnly = true;
-    RefreshCalDavUrl();
-  }
-
-  private void RefreshCalDavUrl()
-  {
-    if (_loadingConfig)
-    {
-      return;
-    }
-
-    _carbonioCalendarUrl.Text = BuildCalDavUrl(
-      _carbonioBaseUrl.Text.Trim(),
-      _carbonioUsername.Text.Trim(),
-      _carbonioCalendarName.Text.Trim());
-  }
-
-  private static string ToDisplayCalDavUrl(string value)
-  {
-    return ToDisplayUrl(value);
-  }
-
   private static string ToDisplayUrl(string value)
   {
     return value.Replace("%40", "@", StringComparison.OrdinalIgnoreCase);
@@ -1313,7 +1531,12 @@ public sealed class MainForm : Form
 
   private static JsonSerializerOptions JsonOptions()
   {
-    return new JsonSerializerOptions { WriteIndented = true, PropertyNameCaseInsensitive = true };
+    return new JsonSerializerOptions
+    {
+      WriteIndented = true,
+      PropertyNameCaseInsensitive = true,
+      DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+    };
   }
 
   private static string GetLogsDirectory()
@@ -1373,7 +1596,6 @@ public sealed class MainForm : Form
     public string? Username { get; set; }
     public string? CalendarName { get; set; }
     public string? CalendarUrl { get; set; }
-    public bool AllowNonGoogleCalendar { get; set; }
   }
 
   private sealed record GoogleFileModel
@@ -1383,7 +1605,30 @@ public sealed class MainForm : Form
     public List<GoogleCalendarFileModel> Calendars { get; set; } = [];
   }
 
-  private sealed record GoogleCalendarFileModel(string Id, string IcsUrl, string? TitlePrefix, bool UseLegacyUid = false);
+  private sealed record GoogleCalendarFileModel(
+    string Id,
+    string? IcsUrl,
+    string? TitlePrefix,
+    string? CarbonioCalendarName = null,
+    string? CarbonioCalendarUrl = null);
+
+  private sealed record GoogleCalendarRowMetadata(string? IcsUrl);
+
+  private sealed record ExportPayload(
+    ConfigFileModel Config,
+    List<GoogleIcsSecret> GoogleIcsUrls,
+    string? CarbonioPassword);
+
+  private sealed record GoogleIcsSecret(string CalendarId, string IcsUrl);
+
+  private sealed record EncryptedExportFile(
+    string Format,
+    string Algorithm,
+    int Iterations,
+    string Salt,
+    string Nonce,
+    string Tag,
+    string CipherText);
 
   private sealed record SyncFileModel
   {
@@ -1411,6 +1656,7 @@ public sealed class MainForm : Form
   private sealed class GuiCredentialStore
   {
     private const string Purpose = "CarbonioGoogleCalendarSync.CarbonioPassword";
+    private const string GoogleIcsPurpose = "CarbonioGoogleCalendarSync.GoogleIcsUrl";
 
     public async Task SaveCarbonioPasswordAsync(string username, string password, CancellationToken cancellationToken)
     {
@@ -1423,6 +1669,17 @@ public sealed class MainForm : Form
       await File.WriteAllBytesAsync(path, protectedBytes, cancellationToken);
     }
 
+    public void SaveCarbonioPassword(string username, string password)
+    {
+      var path = GetCredentialPath(username);
+      Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+      var protectedBytes = ProtectedData.Protect(
+        Encoding.UTF8.GetBytes(password),
+        Encoding.UTF8.GetBytes(Purpose),
+        DataProtectionScope.CurrentUser);
+      File.WriteAllBytes(path, protectedBytes);
+    }
+
     public async Task<string?> GetCarbonioPasswordAsync(string username, CancellationToken cancellationToken)
     {
       var path = GetCredentialPath(username);
@@ -1432,6 +1689,22 @@ public sealed class MainForm : Form
       }
 
       var protectedBytes = await File.ReadAllBytesAsync(path, cancellationToken);
+      var clearBytes = ProtectedData.Unprotect(
+        protectedBytes,
+        Encoding.UTF8.GetBytes(Purpose),
+        DataProtectionScope.CurrentUser);
+      return Encoding.UTF8.GetString(clearBytes);
+    }
+
+    public string? GetCarbonioPassword(string username)
+    {
+      var path = GetCredentialPath(username);
+      if (!File.Exists(path))
+      {
+        return null;
+      }
+
+      var protectedBytes = File.ReadAllBytes(path);
       var clearBytes = ProtectedData.Unprotect(
         protectedBytes,
         Encoding.UTF8.GetBytes(Purpose),
@@ -1455,6 +1728,38 @@ public sealed class MainForm : Form
       return Task.CompletedTask;
     }
 
+    public void SaveGoogleIcsUrl(string username, string calendarId, string icsUrl)
+    {
+      var path = GetGoogleIcsPath(username, calendarId);
+      Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+      var protectedBytes = ProtectedData.Protect(
+        Encoding.UTF8.GetBytes(icsUrl),
+        Encoding.UTF8.GetBytes(GoogleIcsPurpose),
+        DataProtectionScope.CurrentUser);
+      File.WriteAllBytes(path, protectedBytes);
+    }
+
+    public string? GetGoogleIcsUrl(string username, string calendarId)
+    {
+      var path = GetGoogleIcsPath(username, calendarId);
+      if (!File.Exists(path))
+      {
+        return null;
+      }
+
+      var protectedBytes = File.ReadAllBytes(path);
+      var clearBytes = ProtectedData.Unprotect(
+        protectedBytes,
+        Encoding.UTF8.GetBytes(GoogleIcsPurpose),
+        DataProtectionScope.CurrentUser);
+      return Encoding.UTF8.GetString(clearBytes);
+    }
+
+    public static bool GoogleIcsExists(string username, string calendarId)
+    {
+      return File.Exists(GetGoogleIcsPath(username, calendarId));
+    }
+
     private static string GetCredentialPath(string username)
     {
       var fileName = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(username.ToLowerInvariant())));
@@ -1462,6 +1767,18 @@ public sealed class MainForm : Form
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "CarbonioGoogleCalendarSync",
         "credentials",
+        $"{fileName}.bin");
+    }
+
+    private static string GetGoogleIcsPath(string username, string calendarId)
+    {
+      var key = $"{username.ToLowerInvariant()}|{calendarId.ToLowerInvariant()}";
+      var fileName = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(key)));
+      return Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "CarbonioGoogleCalendarSync",
+        "credentials",
+        "google-ics",
         $"{fileName}.bin");
     }
   }

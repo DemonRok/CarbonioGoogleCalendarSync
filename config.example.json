@@ -1,26 +1,19 @@
 {
   "Carbonio": {
     "BaseUrl": "https://webmail.example.local",
-    "Username": "user.name@example.local",
-    "CalendarName": "Google",
-    "CalendarUrl": "https://webmail.example.local/dav/user.name%40example.local/Google/",
-    "AllowNonGoogleCalendar": false
+    "Username": "user.name@example.local"
   },
   "Google": {
-    "CalendarId": "primary",
-    "IcsUrl": "https://calendar.google.com/calendar/ical/your-calendar-id/private-token/basic.ics",
     "Calendars": [
       {
         "Id": "primary",
-        "IcsUrl": "https://calendar.google.com/calendar/ical/your-calendar-id/private-token/basic.ics",
         "TitlePrefix": "(G)",
-        "UseLegacyUid": true
+        "CarbonioCalendarName": "Google"
       },
       {
         "Id": "work",
-        "IcsUrl": "https://calendar.google.com/calendar/ical/another-calendar-id/private-token/basic.ics",
         "TitlePrefix": "(W)",
-        "UseLegacyUid": false
+        "CarbonioCalendarName": "Work"
       }
     ]
   },
