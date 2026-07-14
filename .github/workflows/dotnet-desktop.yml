@@ -69,4 +69,4 @@ jobs:
           gh release create $env:GITHUB_REF_NAME
           CarbonioGoogleCalendarSync-win-x64.zip
           --title "CarbonioGoogleCalendarSync $env:GITHUB_REF_NAME"
-          --notes "Windows x64 self-contained package."
+          --generate-notes

@@ -208,7 +208,9 @@ From the GUI you can:
 - save/use generated CalDAV URLs internally with the correct `%40` escaping;
 - configure one or more Google ICS URLs while showing the normal `@` in the GUI;
 - add and remove Google calendars from the configuration grid;
+- see whether each private Google ICS URL is already saved in the current Windows user protected store;
 - choose the destination Carbonio calendar for each Google source calendar;
+- validate required configuration fields before saving or running commands;
 - save/use the ICS URL internally with the correct escaping when needed;
 - hide the saved Google ICS URL by showing `********`, because it is a private URL;
 - configure the title prefix for imported events, default `(G)`;
@@ -256,6 +258,8 @@ The **Operations** tab separates main actions from tools:
 
 The Carbonio connection test is in the **Configuration** tab as **Connection Test**, together with the CalDAV settings.
 
+The **Connection Test** checks Carbonio targets and Google ICS readability without creating a test event.
+
 From scripts:
 
 ```powershell
@@ -266,6 +270,22 @@ From scripts:
 The scripts do not contain passwords and work when launched from the repo root, from the `scripts` folder, from the published `publish\win-x64\scripts` folder, or from a UNC network share. The task uses the current Windows user and validates configuration from the `%AppData%` user profile; before installing it, make sure configuration and CalDAV password have been saved from the GUI or with `credentials set-carbonio` using the same user.
 
 Script output is normalized by the GUI to preserve correct line breaks in the operations output window.
+
+## Releases
+
+To prepare a local release commit and tag after the working tree is clean:
+
+```powershell
+.\scripts\Release.ps1 -Version 1.0.7
+```
+
+The script updates `Directory.Build.props`, runs build/test/publish, commits the version bump and creates the local tag. Push the commit and tag when ready:
+
+```powershell
+git push origin main v1.0.7
+```
+
+GitHub Actions builds pushed tags matching `v*`, creates the Windows x64 ZIP package and publishes a GitHub release with generated release notes.
 
 ## Logs
 
